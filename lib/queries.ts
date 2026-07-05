@@ -267,6 +267,7 @@ SELECT code, name${extraSelect.replace(/MAX\([^)]*\) AS /g, "")},
        WHEN cum_metric / NULLIF(total_metric,0) <= 0.9 THEN 'B' ELSE 'C' END AS abc_class
 FROM final
 ORDER BY rank
+LIMIT 5000
 `.trim()
 }
 
@@ -331,6 +332,7 @@ SELECT code, name${extraSelect.replace(/MAX\([^)]*\) AS /g, "")},
        WHEN cum_metric / NULLIF(total_metric,0) <= 0.9 THEN 'B' ELSE 'C' END AS abc_class
 FROM final
 ORDER BY rank
+LIMIT 5000
 `.trim()
 }
 
