@@ -25,7 +25,8 @@ const T_TRADE = `${DB}.ANALYTICS.TABLEAU_I_ABC_TRADE`
 const T_ITEMS = `${DB}.MASTER.DATAMART_COMMON_ITEMS`
 const T_STORES = `${DB}.MASTER.DATAMART_COMMON_STORES`
 const T_MEMBERS = `${DB}.MASTER.DATAMART_COMMON_MEMBERS`
-const T_DT_CATEGORY = `${DB}.ANALYTICS.DT_DAILY_CATEGORY_STORE`
+const T_DT_MAJOR = `${DB}.ANALYTICS.DT_DAILY_MAJOR_STORE`
+const T_DT_MIDDLE = `${DB}.ANALYTICS.DT_DAILY_MIDDLE_STORE`
 const T_DT_STORE = `${DB}.ANALYTICS.DT_DAILY_STORE_SUMMARY`
 
 // 集計単位 → (コード列, 名称列)
@@ -114,16 +115,22 @@ export function buildAbcSummarySql(args: Omit<AbcQueryArgs, "criteria">): string
   const end = period === "base" ? conditions.baseEnd : conditions.compareEnd!
 
   // Use DT when possible (same condition as buildAbcSql)
-  const canUseDt = unit !== "item"
-    && (!conditions.member?.enabled)
+  const needsMinorLevel = unit === "minor" || unit === "brand" || unit === "maker" || unit === "item"
+  const hasMinorFilter = !!(conditions.minorCodes?.length) || !!(conditions.makerCodes?.length)
+  const canUseDt = !needsMinorLevel
+    && !hasMinorFilter
+    && !conditions.member?.enabled
     && conditions.itemCodes.length === 0
 
   if (canUseDt) {
     const isStoreTab = tab === "store"
-    const dtTable = isStoreTab ? T_DT_STORE : T_DT_CATEGORY
+    const dtTable = isStoreTab
+      ? T_DT_STORE
+      : unit === "middle"
+        ? T_DT_MIDDLE
+        : T_DT_MAJOR
     const DT_PRODUCT_UNIT_COLS: Record<string, string> = {
       md: "d.MD_CODE", major: "d.MAJOR_CODE", middle: "d.MIDDLE_CODE",
-      minor: "d.MINOR_CODE", brand: "d.BRAND_CODE", maker: "d.MAKER_CODE",
     }
     const DT_STORE_UNIT_COLS: Record<string, string> = {
       store: "d.STORE_CODE", area: "s.AREA_CODE", business_type: "s.BUSINESS_TYPE_CODE",
@@ -138,8 +145,6 @@ export function buildAbcSummarySql(args: Omit<AbcQueryArgs, "criteria">): string
       if (conditions.mdCodes?.length) filters.push(`d.MD_CODE IN (${inList(conditions.mdCodes)})`)
       if (conditions.majorCodes?.length) filters.push(`d.MAJOR_CODE IN (${inList(conditions.majorCodes)})`)
       if (conditions.middleCodes?.length) filters.push(`d.MIDDLE_CODE IN (${inList(conditions.middleCodes)})`)
-      if (conditions.minorCodes?.length) filters.push(`d.MINOR_CODE IN (${inList(conditions.minorCodes)})`)
-      if (conditions.makerCodes?.length) filters.push(`d.MAKER_CODE IN (${inList(conditions.makerCodes)})`)
     }
     const storeJoin = isStoreTab ? `JOIN ${T_STORES} s ON s.STORE_CODE = d.STORE_CODE` : ""
     return `
@@ -176,8 +181,12 @@ export function buildAbcSql(args: AbcQueryArgs): string {
   const { conditions, tab, unit, criteria, period } = args
 
   // DT can be used when: no item-level granularity, no member filter, no individual JAN codes
-  const canUseDt = unit !== "item"
-    && (!conditions.member?.enabled)
+  // Additionally, minor/brand/maker filters require fact table (DTs don't have those columns)
+  const needsMinorLevel = unit === "minor" || unit === "brand" || unit === "maker" || unit === "item"
+  const hasMinorFilter = !!(conditions.minorCodes?.length) || !!(conditions.makerCodes?.length)
+  const canUseDt = !needsMinorLevel
+    && !hasMinorFilter
+    && !conditions.member?.enabled
     && conditions.itemCodes.length === 0
 
   if (canUseDt) {
@@ -198,9 +207,6 @@ function buildAbcSqlFromDt(args: AbcQueryArgs): string {
     md: ["d.MD_CODE", "MAX(d.MD_NAME)"],
     major: ["d.MAJOR_CODE", "MAX(d.MAJOR_NAME)"],
     middle: ["d.MIDDLE_CODE", "MAX(d.MIDDLE_NAME)"],
-    minor: ["d.MINOR_CODE", "MAX(d.MINOR_NAME)"],
-    brand: ["d.BRAND_CODE", "MAX(d.BRAND_NAME)"],
-    maker: ["d.MAKER_CODE", "MAX(d.MAKER_NAME)"],
   }
   const DT_STORE_UNIT_COLS: Record<string, [string, string]> = {
     store: ["d.STORE_CODE", `MAX(s.STORE_NAME)`],
@@ -215,8 +221,12 @@ function buildAbcSqlFromDt(args: AbcQueryArgs): string {
     ? DT_STORE_UNIT_COLS[unit] ?? DT_STORE_UNIT_COLS["store"]
     : DT_PRODUCT_UNIT_COLS[unit] ?? DT_PRODUCT_UNIT_COLS["md"]
 
-  // Use store DT for store-tab (no category columns needed), category DT for product-tab
-  const dtTable = isStoreTab ? T_DT_STORE : T_DT_CATEGORY
+  // Select DT based on tab and unit: store tab uses store DT, product tab picks by granularity
+  const dtTable = isStoreTab
+    ? T_DT_STORE
+    : unit === "middle"
+      ? T_DT_MIDDLE
+      : T_DT_MAJOR
 
   // Build WHERE filters for DT
   const filters: string[] = [`d.BUSINESS_DATE BETWEEN '${start}' AND '${end}'`]
@@ -224,9 +234,7 @@ function buildAbcSqlFromDt(args: AbcQueryArgs): string {
   if (!isStoreTab) {
     if (conditions.mdCodes?.length) filters.push(`d.MD_CODE IN (${inList(conditions.mdCodes)})`)
     if (conditions.majorCodes?.length) filters.push(`d.MAJOR_CODE IN (${inList(conditions.majorCodes)})`)
-    if (conditions.middleCodes?.length) filters.push(`d.MIDDLE_CODE IN (${inList(conditions.middleCodes)})`)
-    if (conditions.minorCodes?.length) filters.push(`d.MINOR_CODE IN (${inList(conditions.minorCodes)})`)
-    if (conditions.makerCodes?.length) filters.push(`d.MAKER_CODE IN (${inList(conditions.makerCodes)})`)
+    if (conditions.middleCodes?.length && unit === "middle") filters.push(`d.MIDDLE_CODE IN (${inList(conditions.middleCodes)})`)
   }
   const where = filters.join("\n    AND ")
 
