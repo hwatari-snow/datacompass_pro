@@ -92,6 +92,7 @@ export default function AbcPage() {
   const [error, setError] = React.useState<string | null>(null)
   const [classFilter, setClassFilter] = React.useState<"ALL" | "A" | "B" | "C">("ALL")
   const [q, setQ] = React.useState("")
+  const [visibleCount, setVisibleCount] = React.useState(100)
 
   React.useEffect(() => {
     setConditions(getCurrentConditions())
@@ -143,6 +144,11 @@ export default function AbcPage() {
     if (needle) rs = rs.filter((r) => r.name.toLowerCase().includes(needle) || r.code.toLowerCase().includes(needle))
     return rs
   }, [rows, classFilter, q])
+
+  const visibleRows = React.useMemo(() => tableRows.slice(0, visibleCount), [tableRows, visibleCount])
+
+  // Reset visible count when filters change
+  React.useEffect(() => { setVisibleCount(100) }, [classFilter, q, tab, unit, criteria])
 
   const exportExcel = async () => {
     const XLSX = await import("xlsx")
@@ -286,7 +292,7 @@ export default function AbcPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {tableRows.map((r) => (
+                    {visibleRows.map((r) => (
                       <tr key={r.code} className="border-b last:border-0 hover:bg-accent/40">
                         <td className="py-1.5 pr-3 tabular-nums">{r.rank}</td>
                         <td className="py-1.5 pr-3">{r.name}</td>
@@ -308,6 +314,13 @@ export default function AbcPage() {
                   </tbody>
                 </table>
               </div>
+              {visibleCount < tableRows.length && (
+                <div className="flex justify-center pt-3">
+                  <Button variant="outline" size="sm" onClick={() => setVisibleCount((v) => v + 200)}>
+                    さらに表示（残り {tableRows.length - visibleCount} 件）
+                  </Button>
+                </div>
+              )}
             </CardContent>
           </Card>
         </>
