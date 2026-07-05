@@ -64,7 +64,8 @@ export default function ConditionsPage() {
   const [loading, setLoading] = React.useState(true)
 
   React.useEffect(() => {
-    setC(getCurrentConditions())
+    const loaded = getCurrentConditions()
+    setC(loaded)
     setSaved(getSavedConditions())
     Promise.all([
       fetch("/api/masters/stores").then((r) => r.json()),
@@ -73,7 +74,17 @@ export default function ConditionsPage() {
     ])
       .then(([s, p, f]) => {
         if (Array.isArray(s)) setStores(s)
-        if (p && !p.error) setHierarchy(p)
+        if (p && !p.error) {
+          setHierarchy(p)
+          // Sanitize: remove middleCodes/minorCodes that don't exist in the loaded hierarchy
+          const validMiddleCodes = new Set((p.middle as { code: string }[]).map(m => m.code))
+          const validMinorCodes = new Set((p.minor as { code: string }[]).map(m => m.code))
+          setC(prev => ({
+            ...prev,
+            middleCodes: prev.middleCodes.filter(c => validMiddleCodes.has(c)),
+            minorCodes: prev.minorCodes.filter(c => validMinorCodes.has(c)),
+          }))
+        }
         if (f && !f.error) setFacets(f)
       })
       .finally(() => setLoading(false))
@@ -81,6 +92,11 @@ export default function ConditionsPage() {
 
   const upd = (patch: Partial<AnalysisConditions>) => setC((prev) => ({ ...prev, ...patch }))
   const updMember = (patch: Partial<AnalysisConditions["member"]>) => setC((prev) => ({ ...prev, member: { ...prev.member, ...patch } }))
+
+  // Cascade: clear child selections when parent changes
+  const updMdCodes = (codes: string[]) => upd({ mdCodes: codes, majorCodes: [], middleCodes: [], minorCodes: [] })
+  const updMajorCodes = (codes: string[]) => upd({ majorCodes: codes, middleCodes: [], minorCodes: [] })
+  const updMiddleCodes = (codes: string[]) => upd({ middleCodes: codes, minorCodes: [] })
 
   const runAnalysis = () => {
     setCurrentConditions(c)
@@ -201,7 +217,7 @@ export default function ConditionsPage() {
                 <CheckGroup
                   options={hierarchy.md.map(m => m.name)}
                   selected={c.mdCodes.map(code => hierarchy.md.find(m => m.code === code)?.name ?? code)}
-                  onChange={(names) => upd({ mdCodes: names.map(n => hierarchy.md.find(m => m.name === n)?.code ?? n) })}
+                  onChange={(names) => updMdCodes(names.map(n => hierarchy.md.find(m => m.name === n)?.code ?? n))}
                 />
               </div>
 
@@ -220,7 +236,7 @@ export default function ConditionsPage() {
                         const next = c.majorCodes.includes(item.code)
                           ? c.majorCodes.filter(x => x !== item.code)
                           : [...c.majorCodes, item.code]
-                        upd({ majorCodes: next })
+                        updMajorCodes(next)
                       }}
                       className={cn(
                         "px-3 py-1.5 rounded-full text-sm border transition-colors",
@@ -248,7 +264,7 @@ export default function ConditionsPage() {
                         const next = c.middleCodes.includes(item.code)
                           ? c.middleCodes.filter(x => x !== item.code)
                           : [...c.middleCodes, item.code]
-                        upd({ middleCodes: next })
+                        updMiddleCodes(next)
                       }}
                       className={cn(
                         "px-3 py-1.5 rounded-full text-xs border transition-colors",
