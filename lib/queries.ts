@@ -25,6 +25,8 @@ const T_TRADE = `${DB}.ANALYTICS.TABLEAU_I_ABC_TRADE`
 const T_ITEMS = `${DB}.MASTER.DATAMART_COMMON_ITEMS`
 const T_STORES = `${DB}.MASTER.DATAMART_COMMON_STORES`
 const T_MEMBERS = `${DB}.MASTER.DATAMART_COMMON_MEMBERS`
+const T_DT_CATEGORY = `${DB}.ANALYTICS.DT_DAILY_CATEGORY_STORE`
+const T_DT_STORE = `${DB}.ANALYTICS.DT_DAILY_STORE_SUMMARY`
 
 // 集計単位 → (コード列, 名称列)
 const PRODUCT_UNIT_COLS: Record<ProductUnit, [string, string]> = {
@@ -110,6 +112,49 @@ export function buildAbcSummarySql(args: Omit<AbcQueryArgs, "criteria">): string
   const { conditions, tab, unit, period } = args
   const start = period === "base" ? conditions.baseStart : conditions.compareStart!
   const end = period === "base" ? conditions.baseEnd : conditions.compareEnd!
+
+  // Use DT when possible (same condition as buildAbcSql)
+  const canUseDt = unit !== "item"
+    && (!conditions.member?.enabled)
+    && conditions.itemCodes.length === 0
+
+  if (canUseDt) {
+    const isStoreTab = tab === "store"
+    const dtTable = isStoreTab ? T_DT_STORE : T_DT_CATEGORY
+    const DT_PRODUCT_UNIT_COLS: Record<string, string> = {
+      md: "d.MD_CODE", major: "d.MAJOR_CODE", middle: "d.MIDDLE_CODE",
+      minor: "d.MINOR_CODE", brand: "d.BRAND_CODE", maker: "d.MAKER_CODE",
+    }
+    const DT_STORE_UNIT_COLS: Record<string, string> = {
+      store: "d.STORE_CODE", area: "s.AREA_CODE", business_type: "s.BUSINESS_TYPE_CODE",
+      corporation: "s.CORPORATION_CODE", prefecture: "s.PREFECTURE_CODE",
+    }
+    const codeCol = isStoreTab
+      ? (DT_STORE_UNIT_COLS[unit] ?? "d.STORE_CODE")
+      : (DT_PRODUCT_UNIT_COLS[unit] ?? "d.MD_CODE")
+    const filters: string[] = [`d.BUSINESS_DATE BETWEEN '${start}' AND '${end}'`]
+    if (conditions.storeCodes.length > 0) filters.push(`d.STORE_CODE IN (${inList(conditions.storeCodes)})`)
+    if (!isStoreTab) {
+      if (conditions.mdCodes?.length) filters.push(`d.MD_CODE IN (${inList(conditions.mdCodes)})`)
+      if (conditions.majorCodes?.length) filters.push(`d.MAJOR_CODE IN (${inList(conditions.majorCodes)})`)
+      if (conditions.middleCodes?.length) filters.push(`d.MIDDLE_CODE IN (${inList(conditions.middleCodes)})`)
+      if (conditions.minorCodes?.length) filters.push(`d.MINOR_CODE IN (${inList(conditions.minorCodes)})`)
+      if (conditions.makerCodes?.length) filters.push(`d.MAKER_CODE IN (${inList(conditions.makerCodes)})`)
+    }
+    const storeJoin = isStoreTab ? `JOIN ${T_STORES} s ON s.STORE_CODE = d.STORE_CODE` : ""
+    return `
+SELECT
+  SUM(d.TOTAL_SALES_AMOUNT) AS total_sales,
+  SUM(d.TOTAL_SALES_QUANTITY) AS total_quantity,
+  SUM(d.RECEIPT_COUNT) AS total_receipts,
+  COUNT(DISTINCT ${codeCol}) AS total_units
+FROM ${dtTable} d
+${storeJoin}
+WHERE ${filters.join("\n  AND ")}
+`.trim()
+  }
+
+  // Fallback to fact table
   const [codeCol] =
     tab === "product" ? PRODUCT_UNIT_COLS[unit as ProductUnit] : STORE_UNIT_COLS[unit as StoreUnit]
   const where = buildFilters(conditions, start, end)
@@ -128,6 +173,105 @@ WHERE ${where}
 
 /** ABC集計SQLを生成 */
 export function buildAbcSql(args: AbcQueryArgs): string {
+  const { conditions, tab, unit, criteria, period } = args
+
+  // DT can be used when: no item-level granularity, no member filter, no individual JAN codes
+  const canUseDt = unit !== "item"
+    && (!conditions.member?.enabled)
+    && conditions.itemCodes.length === 0
+
+  if (canUseDt) {
+    return buildAbcSqlFromDt(args)
+  }
+  return buildAbcSqlFromFact(args)
+}
+
+/** DT-based ABC SQL (category/store aggregation units — much faster) */
+function buildAbcSqlFromDt(args: AbcQueryArgs): string {
+  const { conditions, tab, unit, criteria, period } = args
+  const start = period === "base" ? conditions.baseStart : conditions.compareStart!
+  const end = period === "base" ? conditions.baseEnd : conditions.compareEnd!
+  const metricCol = AGG_METRIC_COL[criteria]
+
+  // DT column mappings (DT has flat columns, no alias prefix needed)
+  const DT_PRODUCT_UNIT_COLS: Record<string, [string, string]> = {
+    md: ["d.MD_CODE", "MAX(d.MD_NAME)"],
+    major: ["d.MAJOR_CODE", "MAX(d.MAJOR_NAME)"],
+    middle: ["d.MIDDLE_CODE", "MAX(d.MIDDLE_NAME)"],
+    minor: ["d.MINOR_CODE", "MAX(d.MINOR_NAME)"],
+    brand: ["d.BRAND_CODE", "MAX(d.BRAND_NAME)"],
+    maker: ["d.MAKER_CODE", "MAX(d.MAKER_NAME)"],
+  }
+  const DT_STORE_UNIT_COLS: Record<string, [string, string]> = {
+    store: ["d.STORE_CODE", `MAX(s.STORE_NAME)`],
+    area: ["s.AREA_CODE", "MAX(s.AREA_NAME)"],
+    business_type: ["s.BUSINESS_TYPE_CODE", "MAX(s.BUSINESS_TYPE_NAME)"],
+    corporation: ["s.CORPORATION_CODE", "MAX(s.CORPORATION_NAME)"],
+    prefecture: ["s.PREFECTURE_CODE", "MAX(s.PREFECTURE_NAME)"],
+  }
+
+  const isStoreTab = tab === "store"
+  const [codeCol, nameCol] = isStoreTab
+    ? DT_STORE_UNIT_COLS[unit] ?? DT_STORE_UNIT_COLS["store"]
+    : DT_PRODUCT_UNIT_COLS[unit] ?? DT_PRODUCT_UNIT_COLS["md"]
+
+  // Use store DT for store-tab (no category columns needed), category DT for product-tab
+  const dtTable = isStoreTab ? T_DT_STORE : T_DT_CATEGORY
+
+  // Build WHERE filters for DT
+  const filters: string[] = [`d.BUSINESS_DATE BETWEEN '${start}' AND '${end}'`]
+  if (conditions.storeCodes.length > 0) filters.push(`d.STORE_CODE IN (${inList(conditions.storeCodes)})`)
+  if (!isStoreTab) {
+    if (conditions.mdCodes?.length) filters.push(`d.MD_CODE IN (${inList(conditions.mdCodes)})`)
+    if (conditions.majorCodes?.length) filters.push(`d.MAJOR_CODE IN (${inList(conditions.majorCodes)})`)
+    if (conditions.middleCodes?.length) filters.push(`d.MIDDLE_CODE IN (${inList(conditions.middleCodes)})`)
+    if (conditions.minorCodes?.length) filters.push(`d.MINOR_CODE IN (${inList(conditions.minorCodes)})`)
+    if (conditions.makerCodes?.length) filters.push(`d.MAKER_CODE IN (${inList(conditions.makerCodes)})`)
+  }
+  const where = filters.join("\n    AND ")
+
+  // Store tab needs JOIN to stores master for name columns
+  const storeJoin = isStoreTab ? `JOIN ${T_STORES} s ON s.STORE_CODE = d.STORE_CODE` : ""
+
+  const extraSelect = isStoreTab && unit === "store"
+    ? `, MAX(s.AREA_NAME) AS area_name, MAX(s.BUSINESS_TYPE_NAME) AS business_type_name, MAX(s.CORPORATION_NAME) AS corporation_name, MAX(s.PREFECTURE_NAME) AS prefecture_name`
+    : ``
+
+  return `
+WITH agg AS (
+  SELECT ${codeCol} AS code, ${nameCol} AS name${extraSelect},
+         SUM(d.TOTAL_SALES_AMOUNT) AS sales,
+         SUM(d.TOTAL_SALES_QUANTITY) AS quantity,
+         SUM(d.RECEIPT_COUNT) AS receipt_count
+  FROM ${dtTable} d
+  ${storeJoin}
+  WHERE ${where}
+  GROUP BY ${codeCol}
+),
+ranked AS (
+  SELECT agg.*, ${metricCol} AS metric_val
+  FROM agg
+),
+final AS (
+  SELECT r.*,
+    SUM(metric_val) OVER () AS total_metric,
+    SUM(metric_val) OVER (ORDER BY metric_val DESC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS cum_metric,
+    ROW_NUMBER() OVER (ORDER BY metric_val DESC) AS rank
+  FROM ranked r
+)
+SELECT code, name${extraSelect.replace(/MAX\([^)]*\) AS /g, "")},
+  sales, quantity, receipt_count, rank,
+  ROUND(100 * metric_val / NULLIF(total_metric,0), 2) AS sales_ratio,
+  ROUND(100 * cum_metric / NULLIF(total_metric,0), 2) AS cumulative_ratio,
+  CASE WHEN cum_metric / NULLIF(total_metric,0) <= 0.7 THEN 'A'
+       WHEN cum_metric / NULLIF(total_metric,0) <= 0.9 THEN 'B' ELSE 'C' END AS abc_class
+FROM final
+ORDER BY rank
+`.trim()
+}
+
+/** Fact-table-based ABC SQL (item-level or with member/JAN filters) */
+function buildAbcSqlFromFact(args: AbcQueryArgs): string {
   const { conditions, tab, unit, criteria, period } = args
   const start = period === "base" ? conditions.baseStart : conditions.compareStart!
   const end = period === "base" ? conditions.baseEnd : conditions.compareEnd!
