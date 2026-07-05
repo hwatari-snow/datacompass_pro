@@ -1,0 +1,29 @@
+definition_version: "2"
+
+entities:
+  datacompass_full:
+    type: snowflake-app
+    identifier:
+      name: DATACOMPASS_FULL
+      database: USER$HWATARI
+      schema: PUBLIC
+    artifacts:
+      - src: ./*
+        dest: ./
+        ignore:
+          - node_modules
+          - .env*
+          - __pycache__
+          - "*.pyc"
+          - .next
+          - .git
+          - snowflake.log
+
+    query_warehouse: my_wh
+    build_compute_pool:
+      name: SYSTEM_COMPUTE_POOL_CPU
+    service_compute_pool:
+      name: SYSTEM_COMPUTE_POOL_CPU
+    build_eai:
+      name: ALLOW_ALL_INTEGRATION
+    code_workspace: USER$HWATARI.PUBLIC.SNOWFLAKE_APPS

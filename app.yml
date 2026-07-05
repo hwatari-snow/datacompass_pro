@@ -1,0 +1,11 @@
+install:
+  commands:
+    - ["npm", "ci", "--include=dev"]
+
+run:
+  command: ["node", ".next/standalone/server.js"]
+
+profile:
+  label: "DataCompass"
+  description: "PPIH ID-POS 分析プラットフォーム — ABC分析・属性分析・トレンド・ブランド分析・AI Analyst"
+  icon: icon.svg
