@@ -77,7 +77,11 @@ export async function GET(request: Request) {
         `)
         break
 
-      case "area":
+      case "area": {
+        // Apply date filter to avoid full table scan; default to last 90 days
+        const areaDateFilter = baseStart && baseEnd
+          ? `t.BUSINESS_DATE BETWEEN '${baseStart.replace(/'/g, "''")}' AND '${baseEnd.replace(/'/g, "''")}'`
+          : `t.BUSINESS_DATE >= DATEADD('day', -90, CURRENT_DATE())`
         rows = await querySnowflake(`
           SELECT
             s.AREA_NAME,
@@ -90,10 +94,12 @@ export async function GET(request: Request) {
           FROM ${DB}.ANALYTICS.TABLEAU_I_ABC_TRADE t
           JOIN ${DB}.MASTER.DATAMART_COMMON_STORES s ON t.STORE_CODE = s.STORE_CODE
           ${category ? `JOIN ${DB}.MASTER.DATAMART_COMMON_ITEMS p ON t.ITEM_CODE = p.ITEM_CODE` : ""}
-          WHERE 1=1 ${category ? `AND p.MD_NAME = '${category.replace(/'/g, "''")}'` : ""}
+          WHERE ${areaDateFilter} ${category ? `AND p.MD_NAME = '${category.replace(/'/g, "''")}'` : ""}
           GROUP BY s.AREA_NAME, s.PREFECTURE_NAME
           ORDER BY total_sales DESC
         `)
+        break
+      }
         break
 
       case "behavior":
@@ -141,7 +147,7 @@ export async function GET(request: Request) {
       case "summary":
         rows = await querySnowflake(`
           SELECT
-            COUNT(DISTINCT t.MAJICA_NO) AS active_members,
+            APPROX_COUNT_DISTINCT(t.MAJICA_NO) AS active_members,
             SUM(t.ITEM_SALES_AMOUNT) AS total_sales,
             COUNT(DISTINCT t.TRADE_KEY) AS total_transactions,
             ROUND(SUM(t.ITEM_SALES_AMOUNT) / NULLIF(COUNT(DISTINCT t.TRADE_KEY), 0), 0) AS avg_basket,

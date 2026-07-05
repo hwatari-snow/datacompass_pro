@@ -319,6 +319,27 @@ export default function ConditionsPage() {
                   ))}
                 </div>
               </div>
+
+              {/* JANコード直接入力 */}
+              <div>
+                <p className="text-sm font-medium mb-2">JANコード（個別商品指定）</p>
+                <p className="text-xs text-muted-foreground mb-2">カンマまたは改行区切りで入力してください（例: 4901234567890, 4901234567891）</p>
+                <textarea
+                  className="w-full h-24 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  placeholder="4901234567890&#10;4901234567891"
+                  value={c.itemCodes.join("\n")}
+                  onChange={(e) => {
+                    const codes = e.target.value
+                      .split(/[,\n\s]+/)
+                      .map(s => s.trim())
+                      .filter(s => s.length > 0)
+                    upd({ itemCodes: codes })
+                  }}
+                />
+                {c.itemCodes.length > 0 && (
+                  <p className="text-xs text-muted-foreground mt-1">{c.itemCodes.length}件のJANコードが指定されています</p>
+                )}
+              </div>
             </div>
           )}
 

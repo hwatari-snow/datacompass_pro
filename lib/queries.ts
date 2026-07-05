@@ -151,7 +151,8 @@ export function buildAbcSql(args: AbcQueryArgs): string {
 WITH base_trades AS (
   SELECT t.TRADE_KEY, t.ITEM_CODE, t.STORE_CODE, t.MAJICA_NO,
          t.ITEM_SALES_AMOUNT, t.ITEM_SALES_QUANTITY,
-         i.MAJOR_CODE, i.MAJOR_NAME, i.MIDDLE_CODE, i.MIDDLE_NAME, i.MINOR_CODE, i.MINOR_NAME, i.BRAND_CODE, i.BRAND_NAME, i.ITEM_NAME,
+         i.MD_CODE, i.MAJOR_CODE, i.MAJOR_NAME, i.MIDDLE_CODE, i.MIDDLE_NAME,
+         i.MINOR_CODE, i.MINOR_NAME, i.BRAND_CODE, i.BRAND_NAME, i.MAKER_CODE, i.ITEM_NAME,
          s.STORE_NAME, s.AREA_CODE, s.AREA_NAME, s.BUSINESS_TYPE_CODE, s.BUSINESS_TYPE_NAME,
          s.CORPORATION_CODE, s.CORPORATION_NAME, s.PREFECTURE_CODE, s.PREFECTURE_NAME
   FROM ${T_TRADE} t
@@ -160,14 +161,12 @@ WITH base_trades AS (
   WHERE ${where}
 ),
 agg AS (
-  SELECT ${codeCol} AS code, ${nameCol} AS name${extraSelect},
+  SELECT ${codeCol.replace(/^[is]\./, 't.')} AS code, ${nameCol.replace(/\b[is]\./g, 't.')} AS name${extraSelect.replace(/\b[is]\./g, 't.')},
          SUM(t.ITEM_SALES_AMOUNT) AS sales,
          SUM(t.ITEM_SALES_QUANTITY) AS quantity,
          COUNT(DISTINCT t.TRADE_KEY) AS receipt_count
   FROM base_trades t
-  JOIN ${T_ITEMS} i ON i.ITEM_CODE = t.ITEM_CODE
-  JOIN ${T_STORES} s ON s.STORE_CODE = t.STORE_CODE
-  GROUP BY ${codeCol}
+  GROUP BY ${codeCol.replace(/^[is]\./, 't.')}
 ),
 ranked AS (
   SELECT agg.*, ${metricCol} AS metric_val

@@ -19,6 +19,9 @@ export async function GET(request: Request) {
   const whereConditions: string[] = []
   if (baseStart && baseEnd) {
     whereConditions.push(`t.BUSINESS_DATE BETWEEN '${baseStart.replace(/'/g, "''")}' AND '${baseEnd.replace(/'/g, "''")}'`)
+  } else {
+    // Default to last 90 days to avoid full table scan
+    whereConditions.push(`t.BUSINESS_DATE >= DATEADD('day', -90, CURRENT_DATE())`)
   }
   if (storeCodes) {
     const codes = storeCodes.split(",").map((c) => `'${c.replace(/'/g, "''")}'`).join(",")
@@ -56,6 +59,8 @@ export async function GET(request: Request) {
         FROM basket_items
         GROUP BY ITEM_CODE
         HAVING freq >= 3
+        ORDER BY freq DESC
+        LIMIT 500
       ),
       pairs AS (
         SELECT

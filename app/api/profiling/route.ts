@@ -8,7 +8,16 @@ export const dynamic = "force-dynamic"
  * GET /api/profiling
  * Returns purchase interval distribution and retention data for brand profiling.
  */
-export async function GET() {
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url)
+  const baseStart = searchParams.get("baseStart") ?? ""
+  const baseEnd = searchParams.get("baseEnd") ?? ""
+
+  // Default to last 365 days if no date range specified (avoids full 9B-row scan)
+  const dateFilter = baseStart && baseEnd
+    ? `t.BUSINESS_DATE BETWEEN '${baseStart.replace(/'/g, "''")}' AND '${baseEnd.replace(/'/g, "''")}'`
+    : `t.BUSINESS_DATE >= DATEADD('day', -365, CURRENT_DATE())`
+
   try {
     // Purchase interval distribution
     const intervals = await querySnowflake(`
@@ -19,8 +28,8 @@ export async function GET() {
           LAG(BUSINESS_DATE) OVER (PARTITION BY MAJICA_NO ORDER BY BUSINESS_DATE) AS prev_date
         FROM (
           SELECT DISTINCT MAJICA_NO, BUSINESS_DATE
-          FROM ${DB}.ANALYTICS.TABLEAU_I_ABC_TRADE
-          WHERE MAJICA_NO IS NOT NULL
+          FROM ${DB}.ANALYTICS.TABLEAU_I_ABC_TRADE t
+          WHERE MAJICA_NO IS NOT NULL AND ${dateFilter}
         )
       ),
       intervals AS (
@@ -47,8 +56,8 @@ export async function GET() {
           ROW_NUMBER() OVER (PARTITION BY MAJICA_NO ORDER BY BUSINESS_DATE) AS nth_purchase
         FROM (
           SELECT DISTINCT MAJICA_NO, BUSINESS_DATE
-          FROM ${DB}.ANALYTICS.TABLEAU_I_ABC_TRADE
-          WHERE MAJICA_NO IS NOT NULL
+          FROM ${DB}.ANALYTICS.TABLEAU_I_ABC_TRADE t
+          WHERE MAJICA_NO IS NOT NULL AND ${dateFilter}
         )
       ),
       total_members AS (

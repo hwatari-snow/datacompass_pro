@@ -8,14 +8,23 @@ export const dynamic = "force-dynamic"
  * GET /api/switching
  * Returns brand switching matrix data (simplified: brand share per period).
  */
-export async function GET() {
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url)
+  const baseStart = searchParams.get("baseStart") ?? ""
+  const baseEnd = searchParams.get("baseEnd") ?? ""
+
+  // Default to last 180 days if no date range specified (avoids full 9B-row scan)
+  const dateFilter = baseStart && baseEnd
+    ? `t.BUSINESS_DATE BETWEEN '${baseStart.replace(/'/g, "''")}' AND '${baseEnd.replace(/'/g, "''")}'`
+    : `t.BUSINESS_DATE >= DATEADD('day', -180, CURRENT_DATE())`
+
   try {
-    // Brand share in two periods (first half vs second half of data range)
+    // Brand share in two periods (first half vs second half of filtered range)
     const brandShare = await querySnowflake(`
       WITH date_range AS (
         SELECT MIN(BUSINESS_DATE) AS min_dt, MAX(BUSINESS_DATE) AS max_dt
         FROM ${DB}.ANALYTICS.TABLEAU_I_ABC_TRADE
-        WHERE TRADE_CLASS_3 = '売上'
+        WHERE TRADE_CLASS_3 = '売上' AND ${dateFilter}
       ),
       brand_period AS (
         SELECT
@@ -31,6 +40,7 @@ export async function GET() {
         CROSS JOIN date_range dr
         WHERE t.MAJICA_NO IS NOT NULL
           AND p.BRAND_NAME IS NOT NULL
+          AND ${dateFilter}
         GROUP BY p.BRAND_NAME, period
       )
       SELECT
@@ -51,18 +61,18 @@ export async function GET() {
       WITH date_range AS (
         SELECT MIN(BUSINESS_DATE) AS min_dt, MAX(BUSINESS_DATE) AS max_dt
         FROM ${DB}.ANALYTICS.TABLEAU_I_ABC_TRADE
-        WHERE TRADE_CLASS_3 = '売上'
+        WHERE TRADE_CLASS_3 = '売上' AND ${dateFilter}
       ),
       mid_point AS (
         SELECT DATEADD('day', DATEDIFF('day', min_dt, max_dt)/2, min_dt) AS mid_dt FROM date_range
       ),
       p1_members AS (
         SELECT DISTINCT MAJICA_NO FROM ${DB}.ANALYTICS.TABLEAU_I_ABC_TRADE t, mid_point mp
-        WHERE t.BUSINESS_DATE < mp.mid_dt AND t.MAJICA_NO IS NOT NULL
+        WHERE t.BUSINESS_DATE < mp.mid_dt AND t.MAJICA_NO IS NOT NULL AND ${dateFilter}
       ),
       p2_members AS (
         SELECT DISTINCT MAJICA_NO FROM ${DB}.ANALYTICS.TABLEAU_I_ABC_TRADE t, mid_point mp
-        WHERE t.BUSINESS_DATE >= mp.mid_dt AND t.MAJICA_NO IS NOT NULL
+        WHERE t.BUSINESS_DATE >= mp.mid_dt AND t.MAJICA_NO IS NOT NULL AND ${dateFilter}
       )
       SELECT
         (SELECT COUNT(*) FROM p1_members) AS period1_total,
