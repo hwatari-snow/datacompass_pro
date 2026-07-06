@@ -251,6 +251,49 @@
 
 ABC分析およびトレンド表示の高速化のために、ファクトテーブルを階層別に事前集計した Dynamic Table を運用しています。全て `REFRESH_MODE = INCREMENTAL` で1時間ごとに増分更新されます。
 
+### アーキテクチャ図
+
+```mermaid
+flowchart LR
+    subgraph src [Source Tables]
+        FACT[(IS_POS_TRANSACTION\n8.7B rows)]
+        ITEMS[(DATAMART_COMMON_ITEMS\n7M rows)]
+    end
+
+    subgraph dt [Dynamic Tables - INCREMENTAL]
+        DT_STORE[DT_DAILY_STORE_SUMMARY\n1.8M rows / ~89MB\nDaily x Store]
+        DT_MAJOR[DT_DAILY_MAJOR_STORE\n59M rows / ~2.5GB\nDaily x Store x Major]
+        DT_MIDDLE[DT_DAILY_MIDDLE_STORE\n882M rows / ~27GB\nDaily x Store x Middle]
+    end
+
+    ROUTING[Routing Logic\nlib/queries.ts]
+
+    subgraph app [App API Endpoints]
+        API_TREND["/api/trend\n~1 sec"]
+        API_MD["/api/abc md/major\n~1 sec"]
+        API_MID["/api/abc middle\n~3 sec"]
+        API_MINOR["/api/abc minor/brand/maker\n~10-30 sec"]
+        API_ITEM["/api/abc item+member\nfiltered scan"]
+    end
+
+    FACT -->|GROUP BY| DT_STORE
+    FACT -->|JOIN + GROUP BY| DT_MAJOR
+    FACT -->|JOIN + GROUP BY| DT_MIDDLE
+    ITEMS -.->|JOIN| DT_MAJOR
+    ITEMS -.->|JOIN| DT_MIDDLE
+
+    DT_STORE --> ROUTING
+    DT_MAJOR --> ROUTING
+    DT_MIDDLE --> ROUTING
+
+    ROUTING --> API_TREND
+    ROUTING --> API_MD
+    ROUTING --> API_MID
+
+    FACT -.->|Fallback| API_MINOR
+    FACT -.->|Fallback| API_ITEM
+```
+
 ### 一覧
 
 | DT名 | 件数 | サイズ | 期間 | 集計粒度 |
