@@ -31,6 +31,7 @@ const STORE_MODES = [
 ] as const
 
 const PRODUCT_MODES = [
+  { key: "md", label: "MD" },
   { key: "major", label: "大分類" },
   { key: "middle", label: "中分類" },
   { key: "minor", label: "小分類" },
@@ -366,6 +367,7 @@ function ProductPane({ hierarchy, cond, updMdCodes, updMajorCodes, updMiddleCode
   const options: { code: string; name: string }[] = React.useMemo(() => {
     let items: { code: string; name: string }[] = []
     switch (mode) {
+      case "md": items = hierarchy.md; break
       case "major": items = cond.mdCodes.length ? hierarchy.major.filter((m) => cond.mdCodes.includes(m.md_code)) : hierarchy.major; break
       case "middle": items = cond.majorCodes.length ? hierarchy.middle.filter((m) => cond.majorCodes.includes(m.major_code)) : hierarchy.middle; break
       case "minor": items = cond.middleCodes.length ? hierarchy.minor.filter((m) => cond.middleCodes.includes(m.middle_code)) : hierarchy.minor.slice(0, 200); break
@@ -377,13 +379,13 @@ function ProductPane({ hierarchy, cond, updMdCodes, updMajorCodes, updMiddleCode
   }, [hierarchy, cond, mode, search])
 
   const selectedCodes = React.useMemo(() => {
-    switch (mode) { case "major": return cond.majorCodes; case "middle": return cond.middleCodes; case "minor": return cond.minorCodes; case "maker": return cond.makerCodes; default: return [] }
+    switch (mode) { case "md": return cond.mdCodes; case "major": return cond.majorCodes; case "middle": return cond.middleCodes; case "minor": return cond.minorCodes; case "maker": return cond.makerCodes; default: return [] }
   }, [cond, mode])
 
   const toggleCode = (code: string) => {
     const has = selectedCodes.includes(code)
     const next = has ? selectedCodes.filter((c) => c !== code) : [...selectedCodes, code]
-    switch (mode) { case "major": updMajorCodes(next); break; case "middle": updMiddleCodes(next); break; case "minor": upd({ minorCodes: next }); break; case "maker": upd({ makerCodes: next }); break }
+    switch (mode) { case "md": updMdCodes(next); break; case "major": updMajorCodes(next); break; case "middle": updMiddleCodes(next); break; case "minor": upd({ minorCodes: next }); break; case "maker": upd({ makerCodes: next }); break }
   }
 
   const selSet = new Set(selectedCodes)
