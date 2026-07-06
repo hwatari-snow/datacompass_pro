@@ -144,7 +144,7 @@ export function buildAbcSummarySql(args: Omit<AbcQueryArgs, "criteria">): string
     if (!isStoreTab) {
       if (conditions.mdCodes?.length) filters.push(`d.MD_CODE IN (${inList(conditions.mdCodes)})`)
       if (conditions.majorCodes?.length) filters.push(`d.MAJOR_CODE IN (${inList(conditions.majorCodes)})`)
-      if (conditions.middleCodes?.length) filters.push(`d.MIDDLE_CODE IN (${inList(conditions.middleCodes)})`)
+      if (conditions.middleCodes?.length && unit === "middle") filters.push(`d.MIDDLE_CODE IN (${inList(conditions.middleCodes)})`)
     }
     const storeJoin = isStoreTab ? `JOIN ${T_STORES} s ON s.STORE_CODE = d.STORE_CODE` : ""
     return `
