@@ -1,11 +1,7 @@
 "use client"
 import * as React from "react"
 import { useRouter } from "next/navigation"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Card, CardContent } from "@/components/ui/card"
-import { HierarchySelector, type SelectorRow } from "@/components/selector"
-import { cn } from "@/lib/utils"
+import s from "./conditions.module.css"
 import {
   defaultConditions,
   getCurrentConditions,
@@ -16,40 +12,36 @@ import {
   type SavedCondition,
 } from "@/lib/conditions"
 import type { AnalysisConditions, MemberFacets } from "@/lib/types"
+import type { SelectorRow } from "@/components/selector"
 
-const STEPS = ["期間", "店舗", "商品", "会員条件", "保存・確認"]
-// 元HTMLモックのステップ色 (青/ティール/黄/橙/紫)
-const STEP_COLORS = ["#4A90D9", "#5BC8AC", "#E6D72A", "#E8A87C", "#9B7ED8"]
+const STEPS = [
+  { label: "期間", color: "#4A90D9" },
+  { label: "店舗", color: "#5BC8AC" },
+  { label: "商品", color: "#E6D72A" },
+  { label: "会員条件", color: "#E8A87C" },
+  { label: "保存・確認", color: "#9B7ED8" },
+]
 
-function CheckGroup({ options, selected, onChange }: { options: string[]; selected: string[]; onChange: (v: string[]) => void }) {
-  const sel = new Set(selected)
-  return (
-    <div className="flex flex-wrap gap-2">
-      {options.map((o) => (
-        <button
-          key={o}
-          type="button"
-          onClick={() => {
-            const next = new Set(sel)
-            next.has(o) ? next.delete(o) : next.add(o)
-            onChange(Array.from(next))
-          }}
-          className={cn(
-            "px-3 py-1.5 rounded-full text-sm border transition-colors",
-            sel.has(o) ? "bg-primary text-primary-foreground border-primary" : "bg-background hover:bg-accent",
-          )}
-        >
-          {o}
-        </button>
-      ))}
-    </div>
-  )
-}
+const STORE_MODES = [
+  { key: "corporation_name", label: "法人" },
+  { key: "business_type_name", label: "業態" },
+  { key: "area_name", label: "エリア" },
+  { key: "prefecture_name", label: "都道府県" },
+  { key: "store_code", label: "店舗" },
+] as const
+
+const PRODUCT_MODES = [
+  { key: "major", label: "大分類" },
+  { key: "middle", label: "中分類" },
+  { key: "minor", label: "小分類" },
+  { key: "maker", label: "メーカー" },
+  { key: "jan", label: "JAN" },
+] as const
 
 export default function ConditionsPage() {
   const router = useRouter()
-  const [step, setStep] = React.useState(0)
-  const [c, setC] = React.useState<AnalysisConditions>(defaultConditions())
+  const [openSection, setOpenSection] = React.useState(1)
+  const [cond, setCond] = React.useState<AnalysisConditions>(defaultConditions())
   const [stores, setStores] = React.useState<SelectorRow[]>([])
   const [hierarchy, setHierarchy] = React.useState<{
     md: { code: string; name: string }[]
@@ -64,439 +56,457 @@ export default function ConditionsPage() {
   const [loading, setLoading] = React.useState(true)
 
   React.useEffect(() => {
-    const loaded = getCurrentConditions()
-    setC(loaded)
+    setCond(getCurrentConditions())
     setSaved(getSavedConditions())
     Promise.all([
       fetch("/api/masters/stores").then((r) => r.json()),
       fetch("/api/masters/products").then((r) => r.json()),
       fetch("/api/masters/members").then((r) => r.json()),
     ])
-      .then(([s, p, f]) => {
-        if (Array.isArray(s)) setStores(s)
-        if (p && !p.error) {
-          setHierarchy(p)
-          // Sanitize: remove middleCodes/minorCodes that don't exist in the loaded hierarchy
-          const validMiddleCodes = new Set((p.middle as { code: string }[]).map(m => m.code))
-          const validMinorCodes = new Set((p.minor as { code: string }[]).map(m => m.code))
-          setC(prev => ({
-            ...prev,
-            middleCodes: prev.middleCodes.filter(c => validMiddleCodes.has(c)),
-            minorCodes: prev.minorCodes.filter(c => validMinorCodes.has(c)),
-          }))
-        }
+      .then(([st, p, f]) => {
+        if (Array.isArray(st)) setStores(st)
+        if (p && !p.error) setHierarchy(p)
         if (f && !f.error) setFacets(f)
       })
       .finally(() => setLoading(false))
   }, [])
 
-  const upd = (patch: Partial<AnalysisConditions>) => setC((prev) => ({ ...prev, ...patch }))
-  const updMember = (patch: Partial<AnalysisConditions["member"]>) => setC((prev) => ({ ...prev, member: { ...prev.member, ...patch } }))
-
-  // Cascade: clear child selections when parent changes
+  const upd = (patch: Partial<AnalysisConditions>) => setCond((prev) => ({ ...prev, ...patch }))
+  const updMember = (patch: Partial<AnalysisConditions["member"]>) => setCond((prev) => ({ ...prev, member: { ...prev.member, ...patch } }))
   const updMdCodes = (codes: string[]) => upd({ mdCodes: codes, majorCodes: [], middleCodes: [], minorCodes: [] })
   const updMajorCodes = (codes: string[]) => upd({ majorCodes: codes, middleCodes: [], minorCodes: [] })
   const updMiddleCodes = (codes: string[]) => upd({ middleCodes: codes, minorCodes: [] })
 
-  const runAnalysis = () => {
-    setCurrentConditions(c)
-    router.push("/analysis/abc")
-  }
-  const doSave = () => {
-    if (!saveName.trim()) return
-    setSaved(saveCondition(saveName.trim(), c))
-    setSaveName("")
-  }
-  const loadSaved = (s: SavedCondition) => {
-    setC(s.conditions)
-    setStep(0)
-  }
+  const toggle = (sec: number) => setOpenSection(openSection === sec ? 0 : sec)
+
+  const dateOk = !!(cond.baseStart && cond.baseEnd)
+  const storeOk = cond.storeCodes.length > 0
+  const prodOk = cond.mdCodes.length > 0 || cond.majorCodes.length > 0 || cond.middleCodes.length > 0 || cond.minorCodes.length > 0 || cond.makerCodes.length > 0 || cond.itemCodes.length > 0
+  const dateSummary = dateOk ? `${cond.baseStart} 〜 ${cond.baseEnd}${cond.compareEnabled ? " (比較あり)" : ""}` : "未設定"
+  const storeSummary = storeOk ? `${cond.storeCodes.length}店舗` : "全店舗"
+  const prodSummary = prodOk ? [
+    cond.majorCodes.length && `大分類${cond.majorCodes.length}`,
+    cond.middleCodes.length && `中分類${cond.middleCodes.length}`,
+    cond.minorCodes.length && `小分類${cond.minorCodes.length}`,
+    cond.makerCodes.length && `メーカー${cond.makerCodes.length}`,
+    cond.itemCodes.length && `JAN${cond.itemCodes.length}`,
+  ].filter(Boolean).join(" / ") : "全商品"
+  const memberSummary = cond.member.enabled ? `${[cond.member.genders.length && "性別", cond.member.ageGroups.length && "年代", cond.member.ranks.length && "ランク"].filter(Boolean).length || 0}条件` : "条件なし"
+
+  const runAnalysis = () => { setCurrentConditions(cond); router.push("/analysis/abc") }
+  const doSave = () => { if (!saveName.trim()) return; setSaved(saveCondition(saveName.trim(), cond)); setSaveName("") }
+  const resetAll = () => setCond(defaultConditions())
+
+  if (loading) return <div style={{ padding: 40, textAlign: "center", color: "#94a3b8" }}>マスタ読み込み中...</div>
 
   return (
-    <main className="w-full max-w-6xl mx-auto py-8 px-4">
-      <h1 className="text-xl font-semibold mb-1">分析条件設定</h1>
-      <p className="text-sm text-muted-foreground mb-6">期間・店舗・商品・会員条件を設定してID-POS ABC分析を実行します。</p>
-
-      {/* ステップインジケーター (元モックの色を踏襲) */}
-      <div className="flex items-center mb-8">
-        {STEPS.map((s, i) => {
-          const color = STEP_COLORS[i]
-          const isActive = i === step
-          const isDone = i < step
-          const dotStyle: React.CSSProperties = isDone
-            ? { background: color, borderColor: color, color: "#fff" }
-            : isActive
-              ? { borderColor: color, color, background: `${color}1a` }
-              : {}
+    <main style={{ maxWidth: 1400, margin: "0 auto", padding: 24 }}>
+      {/* Step Indicator */}
+      <div className={s.stepIndicator}>
+        {STEPS.map((st, i) => {
+          const sec = i + 1
+          const isActive = openSection === sec
+          const isDone = (sec === 1 && dateOk) || (sec === 2 && storeOk) || (sec === 3 && prodOk) || (sec === 4 && cond.member.enabled) || (sec === 5 && saved.length > 0)
+          const cls = isActive ? s[`active${sec}`] : isDone && openSection !== sec ? s[`done${sec}`] : ""
           return (
-            <React.Fragment key={s}>
-              <button type="button" onClick={() => setStep(i)} className="flex flex-col items-center gap-1 shrink-0">
-                <span
-                  style={dotStyle}
-                  className={cn(
-                    "w-9 h-9 rounded-full border-2 flex items-center justify-center text-sm font-bold transition-all",
-                    !isActive && !isDone && "border-[#d0d5dd] text-muted-foreground bg-white",
-                  )}
-                >
-                  {i + 1}
-                </span>
-                <span className={cn("text-xs", isActive ? "text-foreground font-medium" : "text-muted-foreground")}>{s}</span>
-              </button>
+            <React.Fragment key={st.label}>
+              <div className={s.stepGroup}>
+                <div className={`${s.stepDot} ${cls}`} onClick={() => toggle(sec)}>
+                  {isDone && !isActive ? "✓" : sec}
+                </div>
+                <span className={s.stepLabel}>{st.label}</span>
+              </div>
               {i < STEPS.length - 1 && (
-                <div className="flex-1 h-0.5 mx-2 transition-colors" style={{ background: isDone ? color : "#d0d5dd" }} />
+                <div className={`${s.stepLine} ${isDone ? s[`done${sec}`] : ""}`} />
               )}
             </React.Fragment>
           )
         })}
       </div>
 
-      <Card>
-        <CardContent className="pt-6 min-h-[360px]">
-          {loading && <p className="text-sm text-muted-foreground">マスタ読み込み中…</p>}
+      <div style={{ textAlign: "right", marginBottom: 8 }}>
+        <button className={s.resetBtn} onClick={resetAll}>クリア</button>
+      </div>
 
-          {/* Step 1: 期間 */}
-          {step === 0 && (
-            <div className="space-y-6 max-w-xl">
-              <div>
-                <label className="text-sm font-medium">基準期間</label>
-                <div className="flex items-center gap-2 mt-2">
-                  <Input type="date" value={c.baseStart} onChange={(e) => upd({ baseStart: e.target.value })} />
-                  <span className="text-muted-foreground">〜</span>
-                  <Input type="date" value={c.baseEnd} onChange={(e) => upd({ baseEnd: e.target.value })} />
-                </div>
+      {/* Section 1: 期間 */}
+      <div className={`${s.section} ${openSection === 1 ? s.activeSection1 : ""}`}>
+        <div className={s.sectionHeader} onClick={() => toggle(1)}>
+          <div className={`${s.sectionNum} ${s.num1}`}>1</div>
+          <div className={s.sectionTitle}>期間選択</div>
+          <div className={s.sectionSummary}>{dateSummary}</div>
+          <div className={`${s.sectionChevron} ${openSection === 1 ? s.open : ""}`}>▼</div>
+        </div>
+        {openSection === 1 && (
+          <div className={s.sectionBody}>
+            <div className={s.dateSectionBody}>
+              <div className={s.dateRangeRow}>
+                <span className={s.dateRangeLabel}>基準期間：</span>
+                <input type="date" className={s.dateInput} value={cond.baseStart} onChange={(e) => upd({ baseStart: e.target.value })} />
+                <span className={s.separator}>〜</span>
+                <input type="date" className={s.dateInput} value={cond.baseEnd} onChange={(e) => upd({ baseEnd: e.target.value })} />
               </div>
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={c.compareEnabled}
-                  onChange={(e) =>
-                    upd({
-                      compareEnabled: e.target.checked,
-                      compareStart: e.target.checked ? c.compareStart ?? "2025-08-01" : null,
-                      compareEnd: e.target.checked ? c.compareEnd ?? "2025-10-31" : null,
-                    })
-                  }
-                />
-                比較期間を設定する（前期比を表示）
-              </label>
-              {c.compareEnabled && (
-                <div className="flex items-center gap-2">
-                  <Input type="date" value={c.compareStart ?? ""} onChange={(e) => upd({ compareStart: e.target.value })} />
-                  <span className="text-muted-foreground">〜</span>
-                  <Input type="date" value={c.compareEnd ?? ""} onChange={(e) => upd({ compareEnd: e.target.value })} />
-                </div>
-              )}
+              <div className={`${s.dateRangeRow} ${!cond.compareEnabled ? s.compDisabled : ""}`}>
+                <span className={s.dateRangeLabel} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span className={s.toggleSwitch}>
+                    <input type="checkbox" checked={cond.compareEnabled} onChange={(e) => upd({ compareEnabled: e.target.checked, compareStart: e.target.checked ? cond.compareStart ?? "2025-08-01" : null, compareEnd: e.target.checked ? cond.compareEnd ?? "2025-10-31" : null })} />
+                    <span className={s.toggleSlider} />
+                  </span>
+                  比較期間：
+                </span>
+                <input type="date" className={s.dateInput} value={cond.compareStart ?? ""} onChange={(e) => upd({ compareStart: e.target.value })} />
+                <span className={s.separator}>〜</span>
+                <input type="date" className={s.dateInput} value={cond.compareEnd ?? ""} onChange={(e) => upd({ compareEnd: e.target.value })} />
+              </div>
             </div>
-          )}
+          </div>
+        )}
+      </div>
 
-          {/* Step 2: 店舗 */}
-          {step === 1 && (
-            <HierarchySelector
-              rows={stores}
-              idField="store_code"
-              labelField="store_name"
-              groupFields={[
-                { key: "corporation_name", label: "法人" },
-                { key: "business_type_name", label: "業態" },
-                { key: "area_name", label: "エリア" },
-                { key: "prefecture_name", label: "都道府県" },
-              ]}
-              selected={c.storeCodes}
-              onChange={(codes) => upd({ storeCodes: codes })}
+      {/* Section 2: 店舗 */}
+      <div className={`${s.section} ${openSection === 2 ? s.activeSection2 : ""}`}>
+        <div className={s.sectionHeader} onClick={() => toggle(2)}>
+          <div className={`${s.sectionNum} ${s.num2}`}>2</div>
+          <div className={s.sectionTitle}>店舗選択</div>
+          <div className={s.sectionSummary}>{storeSummary}</div>
+          <div className={`${s.sectionChevron} ${openSection === 2 ? s.open : ""}`}>▼</div>
+        </div>
+        {openSection === 2 && (
+          <div className={s.sectionBody}>
+            <StorePane stores={stores} selected={cond.storeCodes} onChange={(codes) => upd({ storeCodes: codes })} />
+          </div>
+        )}
+      </div>
+
+      {/* Section 3: 商品 */}
+      <div className={`${s.section} ${openSection === 3 ? s.activeSection3 : ""}`}>
+        <div className={s.sectionHeader} onClick={() => toggle(3)}>
+          <div className={`${s.sectionNum} ${s.num3}`}>3</div>
+          <div className={s.sectionTitle}>商品カテゴリ</div>
+          <div className={s.sectionSummary}>{prodSummary}</div>
+          <div className={`${s.sectionChevron} ${openSection === 3 ? s.open : ""}`}>▼</div>
+        </div>
+        {openSection === 3 && (
+          <div className={s.sectionBody}>
+            <ProductPane
+              hierarchy={hierarchy}
+              cond={cond}
+              updMdCodes={updMdCodes}
+              updMajorCodes={updMajorCodes}
+              updMiddleCodes={updMiddleCodes}
+              upd={upd}
             />
-          )}
+          </div>
+        )}
+      </div>
 
-          {/* Step 3: 商品カテゴリ */}
-          {step === 2 && (
-            <div className="space-y-5">
-              <p className="text-sm text-muted-foreground">カテゴリを選択して商品を絞り込みます。未選択＝全体が対象です。</p>
+      {/* Section 4: 会員条件 */}
+      <div className={`${s.section} ${openSection === 4 ? s.activeSection4 : ""}`}>
+        <div className={s.sectionHeader} onClick={() => toggle(4)}>
+          <div className={`${s.sectionNum} ${s.num4}`}>4</div>
+          <div className={s.sectionTitle}>会員条件設定</div>
+          <div className={s.sectionSummary}>{memberSummary}</div>
+          <div className={`${s.sectionChevron} ${openSection === 4 ? s.open : ""}`}>▼</div>
+        </div>
+        {openSection === 4 && (
+          <div className={s.sectionBody}>
+            <MemberPane facets={facets} member={cond.member} updMember={updMember} />
+          </div>
+        )}
+      </div>
 
-              {/* MDコード */}
-              <div>
-                <p className="text-sm font-medium mb-2">MDコード</p>
-                <CheckGroup
-                  options={hierarchy.md.map(m => m.name)}
-                  selected={c.mdCodes.map(code => hierarchy.md.find(m => m.code === code)?.name ?? code)}
-                  onChange={(names) => updMdCodes(names.map(n => hierarchy.md.find(m => m.name === n)?.code ?? n))}
-                />
-              </div>
-
-              {/* 大分類 */}
-              <div>
-                <p className="text-sm font-medium mb-2">大分類</p>
-                <div className="flex flex-wrap gap-2 max-h-40 overflow-y-auto">
-                  {(c.mdCodes.length > 0
-                    ? hierarchy.major.filter(m => c.mdCodes.includes(m.md_code))
-                    : hierarchy.major
-                  ).map((item) => (
-                    <button
-                      key={item.code}
-                      type="button"
-                      onClick={() => {
-                        const next = c.majorCodes.includes(item.code)
-                          ? c.majorCodes.filter(x => x !== item.code)
-                          : [...c.majorCodes, item.code]
-                        updMajorCodes(next)
-                      }}
-                      className={cn(
-                        "px-3 py-1.5 rounded-full text-sm border transition-colors",
-                        c.majorCodes.includes(item.code) ? "bg-primary text-primary-foreground border-primary" : "bg-background hover:bg-accent",
-                      )}
-                    >
-                      {item.name}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* 中分類 */}
-              <div>
-                <p className="text-sm font-medium mb-2">中分類</p>
-                <div className="flex flex-wrap gap-2 max-h-40 overflow-y-auto">
-                  {(c.majorCodes.length > 0
-                    ? hierarchy.middle.filter(m => c.majorCodes.includes(m.major_code))
-                    : hierarchy.middle.slice(0, 50)
-                  ).map((item) => (
-                    <button
-                      key={item.code}
-                      type="button"
-                      onClick={() => {
-                        const next = c.middleCodes.includes(item.code)
-                          ? c.middleCodes.filter(x => x !== item.code)
-                          : [...c.middleCodes, item.code]
-                        updMiddleCodes(next)
-                      }}
-                      className={cn(
-                        "px-3 py-1.5 rounded-full text-xs border transition-colors",
-                        c.middleCodes.includes(item.code) ? "bg-primary text-primary-foreground border-primary" : "bg-background hover:bg-accent",
-                      )}
-                    >
-                      {item.name}
-                    </button>
-                  ))}
-                  {c.majorCodes.length === 0 && hierarchy.middle.length > 50 && (
-                    <span className="text-xs text-muted-foreground self-center">大分類を選択すると絞り込めます</span>
-                  )}
-                </div>
-              </div>
-
-              {/* 小分類 */}
-              <div>
-                <p className="text-sm font-medium mb-2">小分類</p>
-                <div className="flex flex-wrap gap-2 max-h-40 overflow-y-auto">
-                  {(c.middleCodes.length > 0
-                    ? hierarchy.minor.filter(m => c.middleCodes.includes(m.middle_code))
-                    : []
-                  ).map((item) => (
-                    <button
-                      key={item.code}
-                      type="button"
-                      onClick={() => {
-                        const next = c.minorCodes.includes(item.code)
-                          ? c.minorCodes.filter(x => x !== item.code)
-                          : [...c.minorCodes, item.code]
-                        upd({ minorCodes: next })
-                      }}
-                      className={cn(
-                        "px-3 py-1.5 rounded-full text-xs border transition-colors",
-                        c.minorCodes.includes(item.code) ? "bg-primary text-primary-foreground border-primary" : "bg-background hover:bg-accent",
-                      )}
-                    >
-                      {item.name}
-                    </button>
-                  ))}
-                  {c.middleCodes.length === 0 && (
-                    <span className="text-xs text-muted-foreground">中分類を選択すると表示されます</span>
-                  )}
-                </div>
-              </div>
-
-              {/* メーカー */}
-              <div>
-                <p className="text-sm font-medium mb-2">メーカー</p>
-                <div className="flex flex-wrap gap-2 max-h-40 overflow-y-auto">
-                  {hierarchy.makers.slice(0, 100).map((item) => (
-                    <button
-                      key={item.code}
-                      type="button"
-                      onClick={() => {
-                        const next = c.makerCodes.includes(item.code)
-                          ? c.makerCodes.filter(x => x !== item.code)
-                          : [...c.makerCodes, item.code]
-                        upd({ makerCodes: next })
-                      }}
-                      className={cn(
-                        "px-2.5 py-1 rounded-full text-xs border transition-colors",
-                        c.makerCodes.includes(item.code) ? "bg-primary text-primary-foreground border-primary" : "bg-background hover:bg-accent",
-                      )}
-                    >
-                      {item.name}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* JANコード直接入力 */}
-              <div>
-                <p className="text-sm font-medium mb-2">JANコード（個別商品指定）</p>
-                <p className="text-xs text-muted-foreground mb-2">カンマまたは改行区切りで入力してください（例: 4901234567890, 4901234567891）</p>
-                <textarea
-                  className="w-full h-24 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  placeholder="4901234567890&#10;4901234567891"
-                  value={c.itemCodes.join("\n")}
-                  onChange={(e) => {
-                    const codes = e.target.value
-                      .split(/[,\n\s]+/)
-                      .map(s => s.trim())
-                      .filter(s => s.length > 0)
-                    upd({ itemCodes: codes })
-                  }}
-                />
-                {c.itemCodes.length > 0 && (
-                  <p className="text-xs text-muted-foreground mt-1">{c.itemCodes.length}件のJANコードが指定されています</p>
-                )}
-              </div>
+      {/* Section 5: 保存・確認 */}
+      <div className={`${s.section} ${openSection === 5 ? s.activeSection5 : ""}`}>
+        <div className={s.sectionHeader} onClick={() => toggle(5)}>
+          <div className={`${s.sectionNum} ${s.num5}`}>5</div>
+          <div className={s.sectionTitle}>保存・確認</div>
+          <div className={s.sectionSummary}>{saved.length}件</div>
+          <div className={`${s.sectionChevron} ${openSection === 5 ? s.open : ""}`}>▼</div>
+        </div>
+        {openSection === 5 && (
+          <div className={s.sectionBody}>
+            <div style={{ padding: "12px 16px", borderBottom: "1px solid #e2e8f0", display: "flex", gap: 8, alignItems: "center" }}>
+              <input type="text" className={s.searchInput} style={{ maxWidth: 260 }} placeholder="条件名を入力して保存" value={saveName} onChange={(e) => setSaveName(e.target.value)} />
+              <button className={s.resetBtn} style={{ background: "#4A90D9", boxShadow: "none" }} onClick={doSave} disabled={!saveName.trim()}>保存</button>
             </div>
-          )}
-
-          {/* Step 4: 会員条件 */}
-          {step === 3 && (
-            <div className="space-y-6">
-              <label className="flex items-center gap-2 text-sm font-medium">
-                <input type="checkbox" checked={c.member.enabled} onChange={(e) => updMember({ enabled: e.target.checked })} />
-                会員条件で絞り込む（ID-POS）
-              </label>
-              {!c.member.enabled && (
-                <p className="text-sm text-muted-foreground">未設定の場合は全会員＋非会員が対象です。</p>
-              )}
-              {c.member.enabled && (
-                <div className="space-y-5">
-                  <div>
-                    <p className="text-sm font-medium mb-2">性別</p>
-                    <CheckGroup options={facets.genders} selected={c.member.genders} onChange={(v) => updMember({ genders: v })} />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium mb-2">年代</p>
-                    <CheckGroup options={facets.age_groups} selected={c.member.ageGroups} onChange={(v) => updMember({ ageGroups: v })} />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium mb-2">会員ランク</p>
-                    <CheckGroup options={facets.ranks} selected={c.member.ranks} onChange={(v) => updMember({ ranks: v })} />
-                  </div>
-                  <div className="flex flex-wrap gap-6">
-                    <div>
-                      <p className="text-sm font-medium mb-2">最低購入回数</p>
-                      <Input
-                        type="number"
-                        min={0}
-                        className="w-36"
-                        value={c.member.minPurchaseCount ?? ""}
-                        onChange={(e) => updMember({ minPurchaseCount: e.target.value ? Number(e.target.value) : null })}
-                      />
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium mb-2">最低購入金額（円）</p>
-                      <Input
-                        type="number"
-                        min={0}
-                        className="w-44"
-                        value={c.member.minPurchaseAmount ?? ""}
-                        onChange={(e) => updMember({ minPurchaseAmount: e.target.value ? Number(e.target.value) : null })}
-                      />
-                    </div>
-                  </div>
+            {saved.length === 0 ? (
+              <div className={s.emptyState} style={{ padding: 32 }}><span className={s.icon}>💾</span><span>保存済み条件はありません</span></div>
+            ) : saved.map((sv) => (
+              <div key={sv.id} className={s.savedItem}>
+                <div className={s.savedInfo} onClick={() => { setCond(sv.conditions); setOpenSection(1) }}>
+                  <div className={s.savedName}>{sv.name}</div>
+                  <div className={s.savedMeta}>{sv.conditions.baseStart} 〜 {sv.conditions.baseEnd} | {sv.conditions.storeCodes.length || "全"}店舗</div>
                 </div>
-              )}
-            </div>
-          )}
-
-          {/* Step 5: 保存・確認 */}
-          {step === 4 && (
-            <div className="space-y-6">
-              <div className="grid sm:grid-cols-2 gap-3 text-sm">
-                <Summary label="基準期間" value={`${c.baseStart} 〜 ${c.baseEnd}`} />
-                <Summary label="比較期間" value={c.compareEnabled ? `${c.compareStart} 〜 ${c.compareEnd}` : "なし"} />
-                <Summary label="店舗" value={c.storeCodes.length ? `${c.storeCodes.length}店舗` : "全店舗"} />
-                <Summary label="商品" value={
-                  [
-                    c.mdCodes.length ? `MD: ${c.mdCodes.length}件` : "",
-                    c.majorCodes.length ? `大分類: ${c.majorCodes.length}件` : "",
-                    c.middleCodes.length ? `中分類: ${c.middleCodes.length}件` : "",
-                    c.minorCodes.length ? `小分類: ${c.minorCodes.length}件` : "",
-                    c.makerCodes.length ? `メーカー: ${c.makerCodes.length}件` : "",
-                    c.itemCodes.length ? `個別: ${c.itemCodes.length}件` : "",
-                  ].filter(Boolean).join(" / ") || "全商品"
-                } />
-                <Summary
-                  label="会員条件"
-                  value={
-                    c.member.enabled
-                      ? [
-                          c.member.genders.join("・"),
-                          c.member.ageGroups.join("・"),
-                          c.member.ranks.join("・"),
-                          c.member.minPurchaseCount ? `${c.member.minPurchaseCount}回以上` : "",
-                          c.member.minPurchaseAmount ? `${c.member.minPurchaseAmount}円以上` : "",
-                        ]
-                          .filter(Boolean)
-                          .join(" / ") || "属性指定なし"
-                      : "なし（全会員＋非会員）"
-                  }
-                />
+                <button className={`${s.savedAction} ${s.savedLoad}`} onClick={() => { setCond(sv.conditions); setOpenSection(1) }}>↩</button>
+                <button className={`${s.savedAction} ${s.savedDel}`} onClick={() => setSaved(deleteSavedCondition(sv.id))}>×</button>
               </div>
-              <div className="flex items-center gap-2 border-t pt-4">
-                <Input placeholder="条件名を入力して保存" value={saveName} onChange={(e) => setSaveName(e.target.value)} className="max-w-xs" />
-                <Button variant="outline" onClick={doSave} disabled={!saveName.trim()}>
-                  保存
-                </Button>
-              </div>
-              {saved.length > 0 && (
-                <div className="border-t pt-4">
-                  <p className="text-sm font-medium mb-2">保存済み条件</p>
-                  <div className="flex flex-col gap-1">
-                    {saved.map((s) => (
-                      <div key={s.id} className="flex items-center gap-2 text-sm bg-muted/40 rounded px-3 py-1.5">
-                        <span className="flex-1">{s.name}</span>
-                        <button className="text-primary hover:underline text-xs" onClick={() => loadSaved(s)}>
-                          読込
-                        </button>
-                        <button className="text-destructive hover:underline text-xs" onClick={() => setSaved(deleteSavedCondition(s.id))}>
-                          削除
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+            ))}
+          </div>
+        )}
+      </div>
 
-      {/* ナビゲーション */}
-      <div className="flex items-center justify-between mt-6">
-        <Button variant="outline" onClick={() => setStep((s) => Math.max(0, s - 1))} disabled={step === 0}>
-          戻る
-        </Button>
-        <div className="flex items-center gap-3">
-          {step < STEPS.length - 1 ? (
-            <Button onClick={() => setStep((s) => Math.min(STEPS.length - 1, s + 1))}>次へ</Button>
-          ) : (
-            <Button onClick={runAnalysis}>
-              この条件でABC分析を実行
-            </Button>
-          )}
+      {/* Submit */}
+      <div className={s.submitArea}>
+        <div>
+          <div className={s.submitSummary}>
+            <strong>期間：</strong>{dateSummary}　|　<strong>店舗：</strong>{storeSummary}　|　<strong>商品：</strong>{prodSummary}　|　<strong>会員：</strong>{memberSummary}
+          </div>
+          <div style={{ textAlign: "center" }}>
+            <button className={s.submitBtn} disabled={!dateOk} onClick={runAnalysis}>分析開始</button>
+          </div>
         </div>
       </div>
     </main>
   )
 }
 
-function Summary({ label, value }: { label: string; value: string }) {
+/* ============ Store Pane ============ */
+function StorePane({ stores, selected, onChange }: { stores: SelectorRow[]; selected: string[]; onChange: (c: string[]) => void }) {
+  const [mode, setMode] = React.useState<string>("corporation_name")
+  const [search, setSearch] = React.useState("")
+  const [bizFilter, setBizFilter] = React.useState("all")
+  const selSet = new Set(selected)
+
+  const filtered = React.useMemo(() => {
+    if (bizFilter === "all") return stores
+    if (bizFilter === "DS") return stores.filter((st) => !st.business_type_name?.includes("アピタ") && !st.business_type_name?.includes("ピアゴ") && !st.business_type_name?.includes("ユニー"))
+    return stores.filter((st) => st.business_type_name?.includes("アピタ") || st.business_type_name?.includes("ピアゴ") || st.business_type_name?.includes("ユニー"))
+  }, [stores, bizFilter])
+
+  const options = React.useMemo(() => {
+    const map: Record<string, string[]> = {}
+    filtered.forEach((st) => {
+      const key = mode === "store_code" ? `${st.store_code} ${st.store_name}` : (st[mode as keyof SelectorRow] as string) ?? ""
+      if (!key) return
+      if (!map[key]) map[key] = []
+      map[key].push(st.store_code)
+    })
+    let entries = Object.entries(map).sort((a, b) => a[0].localeCompare(b[0], "ja"))
+    if (search) {
+      const q = search.toLowerCase()
+      entries = entries.filter(([k]) => k.toLowerCase().includes(q))
+    }
+    return entries
+  }, [filtered, mode, search])
+
+  const toggleOption = (codes: string[]) => {
+    const allSel = codes.every((c) => selSet.has(c))
+    if (allSel) onChange(selected.filter((c) => !codes.includes(c)))
+    else onChange([...selected, ...codes.filter((c) => !selSet.has(c))])
+  }
+
+  const selectedDisplay = React.useMemo(() => {
+    if (mode === "store_code") return selected.map((c) => { const st = stores.find((x) => x.store_code === c); return { code: c, label: st ? `${st.store_code} ${st.store_name}` : c } })
+    const map: Record<string, string[]> = {}
+    stores.forEach((st) => { if (!selSet.has(st.store_code)) return; const k = (st[mode as keyof SelectorRow] as string) ?? ""; if (!map[k]) map[k] = []; map[k].push(st.store_code) })
+    return Object.entries(map).map(([k, codes]) => ({ code: codes.join(","), label: `${k} (${codes.length}店舗)` }))
+  }, [stores, selected, mode, selSet])
+
   return (
-    <div className="bg-muted/40 rounded-lg px-4 py-3">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="font-medium mt-0.5">{value}</p>
+    <div className={s.threePane}>
+      <nav className={s.paneNav}>
+        {STORE_MODES.map((m) => (
+          <button key={m.key} className={`${s.paneNavBtn} ${mode === m.key ? s.activeStore : ""}`} onClick={() => { setMode(m.key); setSearch("") }}>
+            {m.label}
+          </button>
+        ))}
+        <div className={s.navDivider} />
+        <button className={s.paneNavBtn} style={{ color: "#dc2626", fontSize: 11 }} onClick={() => onChange([])}>選択リセット</button>
+      </nav>
+      <div className={s.paneMid}>
+        <div className={s.jigyouToggle}>
+          <button className={bizFilter === "all" ? "active" : ""} onClick={() => setBizFilter("all")}>すべて</button>
+          <button className={bizFilter === "DS" ? "active" : ""} onClick={() => setBizFilter("DS")}>DS事業</button>
+          <button className={bizFilter === "GMS" ? "active" : ""} onClick={() => setBizFilter("GMS")}>GMS事業</button>
+        </div>
+        <div className={s.panelHeader}><h3>{STORE_MODES.find((m) => m.key === mode)?.label}一覧</h3><span className={s.count}>{options.length}項目</span></div>
+        <div className={s.searchBar}><input className={s.searchInput} placeholder="検索..." value={search} onChange={(e) => setSearch(e.target.value)} /></div>
+        <div className={s.actionBar}><button onClick={() => { const all = options.flatMap(([, c]) => c); toggleOption(all) }}>表示中を全選択</button></div>
+        <div className={s.panelBody}>
+          {options.map(([label, codes]) => {
+            const isSel = codes.every((c) => selSet.has(c))
+            return (
+              <div key={label} className={`${s.optionRow} ${isSel ? s.selectedStore : ""}`} onClick={() => toggleOption(codes)}>
+                <span className={s.optLabel}>{label}</span>
+                <span className={s.optCount}>{mode !== "store_code" ? codes.length : ""}</span>
+                <span className={`${s.optCheck} ${s.optCheckStore}`}>{isSel ? "✓" : ""}</span>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+      <div className={s.paneSel}>
+        <div className={`${s.panelHeader} ${s.panelHeaderStore}`}><h3>選択済み</h3><span className={s.count}>{selected.length}店舗</span></div>
+        <div className={s.panelBody}>
+          {selectedDisplay.length === 0 ? (
+            <div className={s.emptyState}><span className={s.icon}>🏪</span><span>店舗を選択してください</span></div>
+          ) : selectedDisplay.map((item) => (
+            <div key={item.code} className={s.selItem}>
+              <div className={s.info}><div className={s.name}>{item.label}</div></div>
+              <button className={s.removeBtn} onClick={() => { const codes = item.code.split(","); onChange(selected.filter((c) => !codes.includes(c))) }}>×</button>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ============ Product Pane ============ */
+function ProductPane({ hierarchy, cond, updMdCodes, updMajorCodes, updMiddleCodes, upd }: {
+  hierarchy: { md: { code: string; name: string }[]; major: { code: string; name: string; md_code: string }[]; middle: { code: string; name: string; major_code: string }[]; minor: { code: string; name: string; middle_code: string }[]; makers: { code: string; name: string }[] }
+  cond: AnalysisConditions
+  updMdCodes: (c: string[]) => void
+  updMajorCodes: (c: string[]) => void
+  updMiddleCodes: (c: string[]) => void
+  upd: (p: Partial<AnalysisConditions>) => void
+}) {
+  const [mode, setMode] = React.useState<string>("major")
+  const [search, setSearch] = React.useState("")
+
+  const options: { code: string; name: string }[] = React.useMemo(() => {
+    let items: { code: string; name: string }[] = []
+    switch (mode) {
+      case "major": items = cond.mdCodes.length ? hierarchy.major.filter((m) => cond.mdCodes.includes(m.md_code)) : hierarchy.major; break
+      case "middle": items = cond.majorCodes.length ? hierarchy.middle.filter((m) => cond.majorCodes.includes(m.major_code)) : hierarchy.middle; break
+      case "minor": items = cond.middleCodes.length ? hierarchy.minor.filter((m) => cond.middleCodes.includes(m.middle_code)) : hierarchy.minor.slice(0, 200); break
+      case "maker": items = hierarchy.makers; break
+      default: items = []
+    }
+    if (search) { const q = search.toLowerCase(); items = items.filter((i) => i.name.toLowerCase().includes(q) || i.code.toLowerCase().includes(q)) }
+    return items
+  }, [hierarchy, cond, mode, search])
+
+  const selectedCodes = React.useMemo(() => {
+    switch (mode) { case "major": return cond.majorCodes; case "middle": return cond.middleCodes; case "minor": return cond.minorCodes; case "maker": return cond.makerCodes; default: return [] }
+  }, [cond, mode])
+
+  const toggleCode = (code: string) => {
+    const has = selectedCodes.includes(code)
+    const next = has ? selectedCodes.filter((c) => c !== code) : [...selectedCodes, code]
+    switch (mode) { case "major": updMajorCodes(next); break; case "middle": updMiddleCodes(next); break; case "minor": upd({ minorCodes: next }); break; case "maker": upd({ makerCodes: next }); break }
+  }
+
+  const selSet = new Set(selectedCodes)
+
+  return (
+    <div className={s.threePane}>
+      <nav className={s.paneNav}>
+        {PRODUCT_MODES.map((m) => (
+          <button key={m.key} className={`${s.paneNavBtn} ${mode === m.key ? s.activeProduct : ""}`} onClick={() => { setMode(m.key); setSearch("") }}>
+            {m.label}
+          </button>
+        ))}
+        <div className={s.navDivider} />
+        <button className={s.paneNavBtn} style={{ color: "#dc2626", fontSize: 11 }} onClick={() => upd({ mdCodes: [], majorCodes: [], middleCodes: [], minorCodes: [], makerCodes: [], itemCodes: [] })}>選択リセット</button>
+      </nav>
+      <div className={s.paneMid}>
+        <div className={s.panelHeader}><h3>{PRODUCT_MODES.find((m) => m.key === mode)?.label}一覧</h3><span className={s.count}>{options.length}項目</span></div>
+        <div className={s.searchBar}><input className={s.searchInput} placeholder="検索..." value={search} onChange={(e) => setSearch(e.target.value)} /></div>
+        {mode !== "jan" && (
+          <div className={s.actionBar}><button onClick={() => { const codes = options.map((o) => o.code); switch (mode) { case "major": updMajorCodes(codes); break; case "middle": updMiddleCodes(codes); break; case "minor": upd({ minorCodes: codes }); break; case "maker": upd({ makerCodes: codes }); break } }}>表示中を全選択</button></div>
+        )}
+        <div className={s.panelBody}>
+          {mode === "jan" ? (
+            <div style={{ padding: 14 }}>
+              <p style={{ fontSize: 12, color: "#94a3b8", marginBottom: 8 }}>カンマまたは改行区切りで入力</p>
+              <textarea
+                style={{ width: "100%", height: 200, border: "1px solid #cbd5e1", borderRadius: 6, padding: 8, fontSize: 12, resize: "vertical" }}
+                placeholder={"4901234567890\n4901234567891"}
+                value={cond.itemCodes.join("\n")}
+                onChange={(e) => upd({ itemCodes: e.target.value.split(/[,\n\s]+/).map((x) => x.trim()).filter(Boolean) })}
+              />
+              {cond.itemCodes.length > 0 && <p style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>{cond.itemCodes.length}件</p>}
+            </div>
+          ) : options.map((item) => {
+            const isSel = selSet.has(item.code)
+            return (
+              <div key={item.code} className={`${s.optionRow} ${isSel ? s.selectedProduct : ""}`} onClick={() => toggleCode(item.code)}>
+                <span className={s.optLabel}>{item.name}</span>
+                <span className={`${s.optCheck} ${s.optCheckProduct}`}>{isSel ? "✓" : ""}</span>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+      <div className={s.paneSel}>
+        <div className={`${s.panelHeader} ${s.panelHeaderProduct}`}><h3>選択済み</h3><span className={s.count}>{selectedCodes.length}件</span></div>
+        <div className={s.panelBody}>
+          {selectedCodes.length === 0 ? (
+            <div className={s.emptyState}><span className={s.icon}>🛒</span><span>カテゴリを選択してください</span></div>
+          ) : selectedCodes.map((code) => {
+            const item = options.find((o) => o.code === code)
+            return (
+              <div key={code} className={s.selItem}>
+                <div className={s.info}><div className={s.name}>{item?.name ?? code}</div></div>
+                <button className={s.removeBtn} onClick={() => toggleCode(code)}>×</button>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ============ Member Pane ============ */
+function MemberPane({ facets, member, updMember }: { facets: MemberFacets; member: AnalysisConditions["member"]; updMember: (p: Partial<AnalysisConditions["member"]>) => void }) {
+  const toggleChip = (list: string[], value: string, setter: (v: string[]) => void) => {
+    setter(list.includes(value) ? list.filter((x) => x !== value) : [...list, value])
+  }
+
+  return (
+    <div className={s.memberSectionBody}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+        <span className={`${s.toggleSwitch} ${s.togglePurple}`}>
+          <input type="checkbox" checked={member.enabled} onChange={(e) => updMember({ enabled: e.target.checked })} />
+          <span className={s.toggleSlider} />
+        </span>
+        <span style={{ fontSize: 13, fontWeight: 600, color: member.enabled ? "#7c5fbf" : "#94a3b8" }}>
+          {member.enabled ? "会員条件を設定中" : "条件なし（全会員対象）"}
+        </span>
+      </div>
+      <div className={!member.enabled ? s.memberDisabled : undefined}>
+        <div className={s.memberFilterGrid}>
+          <div className={s.memberFilterCard}>
+            <h4>性別</h4>
+            <div className={s.memberChipGroup}>
+              {facets.genders.map((g) => (
+                <span key={g} className={`${s.memberChip} ${member.genders.includes(g) ? s.selected : ""}`} onClick={() => member.enabled && toggleChip(member.genders, g, (v) => updMember({ genders: v }))}>{g}</span>
+              ))}
+            </div>
+          </div>
+          <div className={s.memberFilterCard}>
+            <h4>会員ランク</h4>
+            <div className={s.memberChipGroup}>
+              {facets.ranks.map((r) => (
+                <span key={r} className={`${s.memberChip} ${member.ranks.includes(r) ? s.selected : ""}`} onClick={() => member.enabled && toggleChip(member.ranks, r, (v) => updMember({ ranks: v }))}>{r}</span>
+              ))}
+            </div>
+          </div>
+          <div className={s.memberFilterCard} style={{ gridColumn: "1 / -1" }}>
+            <h4>年代</h4>
+            <div className={s.memberChipGroup}>
+              {facets.age_groups.map((a) => (
+                <span key={a} className={`${s.memberChip} ${member.ageGroups.includes(a) ? s.selected : ""}`} onClick={() => member.enabled && toggleChip(member.ageGroups, a, (v) => updMember({ ageGroups: v }))}>{a}</span>
+              ))}
+            </div>
+          </div>
+          <div className={s.memberFilterCard}>
+            <h4>最低購入回数</h4>
+            <div className={s.memberInputRow}>
+              <input type="number" min={0} value={member.minPurchaseCount ?? ""} onChange={(e) => member.enabled && updMember({ minPurchaseCount: e.target.value ? Number(e.target.value) : null })} />
+              <span>回以上</span>
+            </div>
+          </div>
+          <div className={s.memberFilterCard}>
+            <h4>最低購入金額</h4>
+            <div className={s.memberInputRow}>
+              <input type="number" min={0} value={member.minPurchaseAmount ?? ""} onChange={(e) => member.enabled && updMember({ minPurchaseAmount: e.target.value ? Number(e.target.value) : null })} />
+              <span>円以上</span>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
