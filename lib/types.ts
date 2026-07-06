@@ -51,6 +51,7 @@ export interface AnalysisConditions {
   compareEnd: string | null
   storeCodes: string[] // 空 = 全店舗
   itemCodes: string[] // 空 = 全商品 (legacy, 個別商品コード)
+  categoryClass: string // "" = 全区分, "DS" or "UNY"
   mdCodes: string[]       // MDコードで絞り込み
   majorCodes: string[]    // 大分類コードで絞り込み
   middleCodes: string[]   // 中分類コードで絞り込み

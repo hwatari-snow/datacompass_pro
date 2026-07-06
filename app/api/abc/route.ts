@@ -1,4 +1,4 @@
-import { querySnowflake, querySnowflakeLongRunning } from "@/lib/snowflake"
+import { querySnowflakeLongRunning } from "@/lib/snowflake"
 import {
   buildAbcSql,
   buildAbcSummarySql,
@@ -7,6 +7,7 @@ import {
 import type { AnalysisConditions, AbcCriteria, ProductUnit, StoreUnit, AbcRow, AbcResult } from "@/lib/types"
 
 export const dynamic = "force-dynamic"
+export const maxDuration = 300
 
 interface AbcRequest {
   conditions: AnalysisConditions
@@ -45,7 +46,7 @@ function mapRow(r: Record<string, unknown>): AbcRow {
 async function runPeriod(args: AbcQueryArgs): Promise<AbcResult> {
   const [rowsRaw, sumRaw] = await Promise.all([
     querySnowflakeLongRunning(buildAbcSql(args), { pollIntervalMs: 500 }),
-    querySnowflake(buildAbcSummarySql({ conditions: args.conditions, tab: args.tab, unit: args.unit, period: args.period })),
+    querySnowflakeLongRunning(buildAbcSummarySql({ conditions: args.conditions, tab: args.tab, unit: args.unit, period: args.period }), { pollIntervalMs: 500 }),
   ])
   const rows = rowsRaw.map(mapRow)
   const s = sumRaw[0] ?? {}

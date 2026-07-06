@@ -196,6 +196,8 @@
 .memberChip:hover { border-color: #9B7ED8; background: #f3eefb; }
 .memberChip.selected { background: #9B7ED8; color: #fff; border-color: #9B7ED8; }
 .memberInputRow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.categoryClassRow { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; padding: 8px 12px; background: #f8fafc; border-radius: 8px; }
+.categoryClassLabel { font-size: 12px; font-weight: 600; color: #475569; }
 .memberInputRow input[type="number"] {
   width: 80px; padding: 6px 10px; border: 1px solid #d8d0e8; border-radius: 6px; font-size: 12px;
   outline: none; color: #1a1a2e; text-align: right;

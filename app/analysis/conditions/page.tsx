@@ -450,11 +450,39 @@ function ProductPane({ hierarchy, cond, updMdCodes, updMajorCodes, updMiddleCode
   )
 }
 
+const TOTAL_MEMBERS = 20_000_000
+
 /* ============ Member Pane ============ */
 function MemberPane({ facets, member, updMember }: { facets: MemberFacets; member: AnalysisConditions["member"]; updMember: (p: Partial<AnalysisConditions["member"]>) => void }) {
   const toggleChip = (list: string[], value: string, setter: (v: string[]) => void) => {
     setter(list.includes(value) ? list.filter((x) => x !== value) : [...list, value])
   }
+
+  const [memberCount, setMemberCount] = React.useState<number | null>(null)
+  const [loading, setLoading] = React.useState(false)
+
+  React.useEffect(() => {
+    const timer = setTimeout(async () => {
+      setLoading(true)
+      try {
+        const payload: Record<string, string[]> = {}
+        if (member.enabled) {
+          if (member.genders.length > 0) payload.genders = member.genders
+          if (member.ageGroups.length > 0) payload.ageGroups = member.ageGroups
+          if (member.ranks.length > 0) payload.ranks = member.ranks
+        }
+        const res = await fetch("/api/masters/members/count", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        })
+        const data = await res.json()
+        setMemberCount(data.count ?? null)
+      } catch { setMemberCount(null) }
+      setLoading(false)
+    }, 400)
+    return () => clearTimeout(timer)
+  }, [member.enabled, member.genders, member.ageGroups, member.ranks])
 
   return (
     <div className={s.memberSectionBody}>
@@ -493,21 +521,21 @@ function MemberPane({ facets, member, updMember }: { facets: MemberFacets; membe
               ))}
             </div>
           </div>
-          <div className={s.memberFilterCard}>
-            <h4>最低購入回数</h4>
-            <div className={s.memberInputRow}>
-              <input type="number" min={0} value={member.minPurchaseCount ?? ""} onChange={(e) => member.enabled && updMember({ minPurchaseCount: e.target.value ? Number(e.target.value) : null })} />
-              <span>回以上</span>
-            </div>
-          </div>
-          <div className={s.memberFilterCard}>
-            <h4>最低購入金額</h4>
-            <div className={s.memberInputRow}>
-              <input type="number" min={0} value={member.minPurchaseAmount ?? ""} onChange={(e) => member.enabled && updMember({ minPurchaseAmount: e.target.value ? Number(e.target.value) : null })} />
-              <span>円以上</span>
-            </div>
-          </div>
+
         </div>
+      </div>
+      <div className={s.memberResultBar}>
+        <span className={s.resultLabel}>対象会員数</span>
+        <span>
+          {loading ? (
+            <span className={s.resultValue} style={{ fontSize: 14 }}>集計中...</span>
+          ) : (
+            <>
+              <span className={s.resultValue}>{memberCount !== null ? memberCount.toLocaleString() : "---"}</span>
+              <span className={s.resultTotal}>/ {TOTAL_MEMBERS.toLocaleString()} 人</span>
+            </>
+          )}
+        </span>
       </div>
     </div>
   )

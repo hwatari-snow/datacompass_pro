@@ -13,6 +13,7 @@ export function defaultConditions(): AnalysisConditions {
     compareEnd: null,
     storeCodes: [],
     itemCodes: [],
+    categoryClass: "",
     mdCodes: [],
     majorCodes: [],
     middleCodes: [],

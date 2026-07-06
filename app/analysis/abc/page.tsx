@@ -110,8 +110,10 @@ export default function AbcPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ conditions, tab, unit, criteria }),
       })
-      const json = await res.json()
-      if (!res.ok) throw new Error(json.error ?? "集計に失敗しました")
+      const text = await res.text()
+      let json: Record<string, unknown>
+      try { json = JSON.parse(text) } catch { throw new Error(`サーバーエラー (${res.status}): ${text.slice(0, 120)}`) }
+      if (!res.ok) throw new Error((json.error as string) ?? "集計に失敗しました")
       setData(json)
     } catch (e) {
       setError(e instanceof Error ? e.message : "集計に失敗しました")

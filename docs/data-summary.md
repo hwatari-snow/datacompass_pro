@@ -258,12 +258,18 @@ flowchart LR
     subgraph src [Source Tables]
         FACT[(IS_POS_TRANSACTION\n8.7B rows)]
         ITEMS[(DATAMART_COMMON_ITEMS\n7M rows)]
+        FACTAGG[(IS_POS_TRANSACTION_AGG\n7.2B rows\nitem x store x day)]
     end
 
-    subgraph dt [Dynamic Tables - INCREMENTAL]
+    subgraph dt [Dynamic Tables - from IS_POS_TRANSACTION]
         DT_STORE[DT_DAILY_STORE_SUMMARY\n1.8M rows / ~89MB\nDaily x Store]
         DT_MAJOR[DT_DAILY_MAJOR_STORE\n59M rows / ~2.5GB\nDaily x Store x Major]
         DT_MIDDLE[DT_DAILY_MIDDLE_STORE\n882M rows / ~27GB\nDaily x Store x Middle]
+    end
+
+    subgraph dtAgg [Dynamic Tables - from IS_POS_TRANSACTION_AGG]
+        DT_AGG_MINOR[DT_AGG_DAILY_MINOR_STORE\n4.76B rows\nDaily x Store x Minor]
+        DT_AGG_MAKER[DT_AGG_DAILY_MAKER_STORE\n1.24B rows\nDaily x Store x Maker]
     end
 
     ROUTING[Routing Logic\nlib/queries.ts]
@@ -272,26 +278,38 @@ flowchart LR
         API_TREND["/api/trend\n~1 sec"]
         API_MD["/api/abc md/major\n~1 sec"]
         API_MID["/api/abc middle\n~3 sec"]
-        API_MINOR["/api/abc minor/brand/maker\n~10-30 sec"]
-        API_ITEM["/api/abc item+member\nfiltered scan"]
+        API_MINOR["/api/abc minor\n~5-10 sec"]
+        API_MAKER["/api/abc maker\n~3-5 sec"]
+        API_ITEM["/api/abc item\n~40-45 sec"]
+        API_MEMBER["/api/abc +member\nfallback to fact"]
     end
 
     FACT -->|GROUP BY| DT_STORE
     FACT -->|JOIN + GROUP BY| DT_MAJOR
     FACT -->|JOIN + GROUP BY| DT_MIDDLE
+    FACT -->|"GROUP BY item x store x day"| FACTAGG
+    FACTAGG -->|JOIN + GROUP BY| DT_AGG_MINOR
+    FACTAGG -->|JOIN + GROUP BY| DT_AGG_MAKER
     ITEMS -.->|JOIN| DT_MAJOR
     ITEMS -.->|JOIN| DT_MIDDLE
+    ITEMS -.->|JOIN| DT_AGG_MINOR
+    ITEMS -.->|JOIN| DT_AGG_MAKER
 
     DT_STORE --> ROUTING
     DT_MAJOR --> ROUTING
     DT_MIDDLE --> ROUTING
+    DT_AGG_MINOR --> ROUTING
+    DT_AGG_MAKER --> ROUTING
+    FACTAGG --> ROUTING
 
     ROUTING --> API_TREND
     ROUTING --> API_MD
     ROUTING --> API_MID
+    ROUTING --> API_MINOR
+    ROUTING --> API_MAKER
+    ROUTING --> API_ITEM
 
-    FACT -.->|Fallback| API_MINOR
-    FACT -.->|Fallback| API_ITEM
+    FACT -.->|"member=ON fallback"| API_MEMBER
 ```
 
 ### 一覧
@@ -302,6 +320,9 @@ flowchart LR
 | DT_DAILY_MAJOR_STORE | 58,648,067 | ~2.5GB | 同上 | 日次 x 店舗 x 取引区分 x MD x 大分類 |
 | DT_DAILY_MIDDLE_STORE | 882,462,116 | ~27GB | 同上 | 日次 x 店舗 x 取引区分 x MD x 大分類 x 中分類 |
 | DT_MEMBER_DAILY_PURCHASE | 4,691,209,092 | ~163GB | 同上 | 会員 x 日次 x 店舗 |
+| IS_POS_TRANSACTION_AGG | 7,236,158,109 | ~65GB | 同上 | 日次 x 店舗 x 商品 x 取引区分 (会員情報なし) |
+| DT_AGG_DAILY_MINOR_STORE | 4,760,121,882 | ~130GB | 同上 | 日次 x 店舗 x 取引区分 x 小分類 |
+| DT_AGG_DAILY_MAKER_STORE | 1,243,764,530 | ~35GB | 同上 | 日次 x 店舗 x 取引区分 x メーカー |
 
 ### DT_DAILY_STORE_SUMMARY
 
