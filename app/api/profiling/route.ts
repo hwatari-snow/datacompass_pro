@@ -28,7 +28,7 @@ export async function GET(request: Request) {
           LAG(BUSINESS_DATE) OVER (PARTITION BY MAJICA_NO ORDER BY BUSINESS_DATE) AS prev_date
         FROM (
           SELECT DISTINCT MAJICA_NO, BUSINESS_DATE
-          FROM ${DB}.ANALYTICS.TABLEAU_I_ABC_TRADE t
+          FROM ${DB}.ANALYTICS.IS_POS_TRANSACTION t
           WHERE MAJICA_NO IS NOT NULL AND ${dateFilter}
         )
       ),
@@ -56,7 +56,7 @@ export async function GET(request: Request) {
           ROW_NUMBER() OVER (PARTITION BY MAJICA_NO ORDER BY BUSINESS_DATE) AS nth_purchase
         FROM (
           SELECT DISTINCT MAJICA_NO, BUSINESS_DATE
-          FROM ${DB}.ANALYTICS.TABLEAU_I_ABC_TRADE t
+          FROM ${DB}.ANALYTICS.IS_POS_TRANSACTION t
           WHERE MAJICA_NO IS NOT NULL AND ${dateFilter}
         )
       ),

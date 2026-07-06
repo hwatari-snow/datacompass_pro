@@ -40,7 +40,7 @@ export async function GET(request: Request) {
         COUNT(DISTINCT t.TRADE_KEY) AS total_baskets,
         COUNT(DISTINCT t.ITEM_CODE) AS unique_items,
         ROUND(COUNT(*) / NULLIF(COUNT(DISTINCT t.TRADE_KEY), 0), 1) AS avg_items_per_basket
-      FROM ${DB}.ANALYTICS.TABLEAU_I_ABC_TRADE t
+      FROM ${DB}.ANALYTICS.IS_POS_TRANSACTION t
       ${whereClause}
     `)
 
@@ -48,7 +48,7 @@ export async function GET(request: Request) {
     const pairRows = await querySnowflake(`
       WITH basket_items AS (
         SELECT DISTINCT t.TRADE_KEY, t.ITEM_CODE
-        FROM ${DB}.ANALYTICS.TABLEAU_I_ABC_TRADE t
+        FROM ${DB}.ANALYTICS.IS_POS_TRANSACTION t
         ${whereClause}
       ),
       total AS (

@@ -57,7 +57,7 @@ export async function GET(request: Request) {
               COUNT(DISTINCT t.BUSINESS_DATE) AS purchase_days,
               SUM(t.ITEM_SALES_AMOUNT) AS total_spend,
               COUNT(DISTINCT t.TRADE_KEY) AS txn_count
-            FROM ${DB}.ANALYTICS.TABLEAU_I_ABC_TRADE t
+            FROM ${DB}.ANALYTICS.IS_POS_TRANSACTION t
             JOIN ${DB}.MASTER.DATAMART_COMMON_MEMBERS m ON t.MAJICA_NO = m.MAJICA_NO
             ${joins.join("\n")}
             WHERE t.MAJICA_NO IS NOT NULL ${filterClause}
@@ -91,7 +91,7 @@ export async function GET(request: Request) {
             COUNT(DISTINCT t.TRADE_KEY) AS transactions,
             COUNT(DISTINCT t.STORE_CODE) AS store_count,
             ROUND(AVG(t.ITEM_SALES_AMOUNT), 0) AS avg_spend
-          FROM ${DB}.ANALYTICS.TABLEAU_I_ABC_TRADE t
+          FROM ${DB}.ANALYTICS.IS_POS_TRANSACTION t
           JOIN ${DB}.MASTER.DATAMART_COMMON_STORES s ON t.STORE_CODE = s.STORE_CODE
           ${category ? `JOIN ${DB}.MASTER.DATAMART_COMMON_ITEMS p ON t.ITEM_CODE = p.ITEM_CODE` : ""}
           WHERE ${areaDateFilter} ${category ? `AND p.MD_NAME = '${category.replace(/'/g, "''")}'` : ""}
@@ -109,7 +109,7 @@ export async function GET(request: Request) {
             COUNT(DISTINCT t.TRADE_KEY) AS transactions,
             SUM(t.ITEM_SALES_AMOUNT) AS total_sales,
             COUNT(DISTINCT t.MAJICA_NO) AS buyers
-          FROM ${DB}.ANALYTICS.TABLEAU_I_ABC_TRADE t
+          FROM ${DB}.ANALYTICS.IS_POS_TRANSACTION t
           ${joins.join("\n")}
           WHERE 1=1 ${filterClause}
           GROUP BY day_of_week
@@ -121,7 +121,7 @@ export async function GET(request: Request) {
         rows = await querySnowflake(`
           WITH filtered_trades AS (
             SELECT t.MAJICA_NO, t.BUSINESS_DATE
-            FROM ${DB}.ANALYTICS.TABLEAU_I_ABC_TRADE t
+            FROM ${DB}.ANALYTICS.IS_POS_TRANSACTION t
             ${joins.join("\n")}
             WHERE t.MAJICA_NO IS NOT NULL ${filterClause}
           ),
@@ -153,7 +153,7 @@ export async function GET(request: Request) {
             ROUND(SUM(t.ITEM_SALES_AMOUNT) / NULLIF(COUNT(DISTINCT t.TRADE_KEY), 0), 0) AS avg_basket,
             ROUND(SUM(t.ITEM_SALES_QUANTITY) / NULLIF(COUNT(DISTINCT t.TRADE_KEY), 0), 1) AS avg_items,
             (SELECT COUNT(DISTINCT MAJICA_NO) FROM ${DB}.MASTER.DATAMART_COMMON_MEMBERS) AS total_members
-          FROM ${DB}.ANALYTICS.TABLEAU_I_ABC_TRADE t
+          FROM ${DB}.ANALYTICS.IS_POS_TRANSACTION t
           ${joins.join("\n")}
           WHERE t.MAJICA_NO IS NOT NULL ${filterClause}
         `)

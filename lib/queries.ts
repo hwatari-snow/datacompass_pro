@@ -21,7 +21,7 @@ function dateLit(v: string): string {
   return `'${v}'`
 }
 
-const T_TRADE = `${DB}.ANALYTICS.TABLEAU_I_ABC_TRADE`
+const T_TRADE = `${DB}.ANALYTICS.IS_POS_TRANSACTION`
 const T_ITEMS = `${DB}.MASTER.DATAMART_COMMON_ITEMS`
 const T_STORES = `${DB}.MASTER.DATAMART_COMMON_STORES`
 const T_MEMBERS = `${DB}.MASTER.DATAMART_COMMON_MEMBERS`

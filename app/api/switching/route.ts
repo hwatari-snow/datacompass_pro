@@ -23,7 +23,7 @@ export async function GET(request: Request) {
     const brandShare = await querySnowflake(`
       WITH date_range AS (
         SELECT MIN(BUSINESS_DATE) AS min_dt, MAX(BUSINESS_DATE) AS max_dt
-        FROM ${DB}.ANALYTICS.TABLEAU_I_ABC_TRADE
+        FROM ${DB}.ANALYTICS.IS_POS_TRANSACTION
         WHERE TRADE_CLASS_3 = '売上' AND ${dateFilter}
       ),
       brand_period AS (
@@ -35,7 +35,7 @@ export async function GET(request: Request) {
           END AS period,
           COUNT(DISTINCT t.MAJICA_NO) AS buyers,
           SUM(t.ITEM_SALES_AMOUNT) AS sales
-        FROM ${DB}.ANALYTICS.TABLEAU_I_ABC_TRADE t
+        FROM ${DB}.ANALYTICS.IS_POS_TRANSACTION t
         JOIN ${DB}.MASTER.DATAMART_COMMON_ITEMS p ON t.ITEM_CODE = p.ITEM_CODE
         CROSS JOIN date_range dr
         WHERE t.MAJICA_NO IS NOT NULL
@@ -60,18 +60,18 @@ export async function GET(request: Request) {
     const switchingSummary = await querySnowflake(`
       WITH date_range AS (
         SELECT MIN(BUSINESS_DATE) AS min_dt, MAX(BUSINESS_DATE) AS max_dt
-        FROM ${DB}.ANALYTICS.TABLEAU_I_ABC_TRADE
+        FROM ${DB}.ANALYTICS.IS_POS_TRANSACTION
         WHERE TRADE_CLASS_3 = '売上' AND ${dateFilter}
       ),
       mid_point AS (
         SELECT DATEADD('day', DATEDIFF('day', min_dt, max_dt)/2, min_dt) AS mid_dt FROM date_range
       ),
       p1_members AS (
-        SELECT DISTINCT MAJICA_NO FROM ${DB}.ANALYTICS.TABLEAU_I_ABC_TRADE t, mid_point mp
+        SELECT DISTINCT MAJICA_NO FROM ${DB}.ANALYTICS.IS_POS_TRANSACTION t, mid_point mp
         WHERE t.BUSINESS_DATE < mp.mid_dt AND t.MAJICA_NO IS NOT NULL AND ${dateFilter}
       ),
       p2_members AS (
-        SELECT DISTINCT MAJICA_NO FROM ${DB}.ANALYTICS.TABLEAU_I_ABC_TRADE t, mid_point mp
+        SELECT DISTINCT MAJICA_NO FROM ${DB}.ANALYTICS.IS_POS_TRANSACTION t, mid_point mp
         WHERE t.BUSINESS_DATE >= mp.mid_dt AND t.MAJICA_NO IS NOT NULL AND ${dateFilter}
       )
       SELECT

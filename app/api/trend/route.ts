@@ -107,7 +107,7 @@ export async function GET(request: Request) {
         ${metricExpr} AS metric_value,
         COUNT(DISTINCT t.STORE_CODE) AS store_count,
         APPROX_COUNT_DISTINCT(t.MAJICA_NO) AS member_count
-      FROM ${DB}.ANALYTICS.TABLEAU_I_ABC_TRADE t
+      FROM ${DB}.ANALYTICS.IS_POS_TRANSACTION t
       ${whereClause}
       GROUP BY period
       ORDER BY period
