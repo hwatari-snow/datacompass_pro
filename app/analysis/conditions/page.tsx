@@ -370,7 +370,7 @@ function ProductPane({ hierarchy, cond, updMdCodes, updMajorCodes, updMiddleCode
       case "md": items = hierarchy.md; break
       case "major": items = cond.mdCodes.length ? hierarchy.major.filter((m) => cond.mdCodes.includes(m.md_code)) : hierarchy.major; break
       case "middle": items = cond.majorCodes.length ? hierarchy.middle.filter((m) => cond.majorCodes.includes(m.major_code)) : hierarchy.middle; break
-      case "minor": items = cond.middleCodes.length ? hierarchy.minor.filter((m) => cond.middleCodes.includes(m.middle_code)) : hierarchy.minor.slice(0, 200); break
+      case "minor": items = cond.middleCodes.length ? hierarchy.minor.filter((m) => cond.middleCodes.includes(m.middle_code)) : hierarchy.minor; break
       case "maker": items = hierarchy.makers; break
       default: items = []
     }
