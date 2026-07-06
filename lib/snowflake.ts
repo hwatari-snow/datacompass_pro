@@ -182,7 +182,11 @@ let tomlPool: ReturnType<typeof snowflake.createPool> | null = null
 
 function baseConfig(): snowflake.ConnectionOptions {
   const application = "SnowflakeAppRuntime"
-  const base: snowflake.ConnectionOptions = { application }
+  const base: snowflake.ConnectionOptions = {
+    application,
+    clientSessionKeepAlive: true,
+    sessionParameters: { USE_CACHED_RESULT: false },
+  }
   if (process.env.SNOWFLAKE_ACCOUNT) base.account = process.env.SNOWFLAKE_ACCOUNT
   if (process.env.SNOWFLAKE_WAREHOUSE) base.warehouse = process.env.SNOWFLAKE_WAREHOUSE
   if (process.env.SNOWFLAKE_ACCOUNT_URL) base.accessUrl = process.env.SNOWFLAKE_ACCOUNT_URL
