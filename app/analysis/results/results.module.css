@@ -1,0 +1,101 @@
+/* Results page — attribute analysis dashboard (matches ABC page theme) */
+
+/* KPI Strip */
+.kpiStrip { display: flex; gap: 12px; margin-bottom: 20px; overflow-x: auto; padding-bottom: 4px; }
+.kpiCard {
+  flex: 1; min-width: 130px; background: var(--muted); border-radius: 10px;
+  padding: 14px 16px; text-align: center; border: 1px solid var(--border);
+}
+.kpiCard.highlight { background: rgba(91, 200, 172, 0.08); border-color: rgba(91, 200, 172, 0.2); }
+.kpiLabel { font-size: 0.7rem; color: var(--muted-foreground); margin-bottom: 4px; font-weight: 500; }
+.kpiValue { font-size: 1.4rem; font-weight: 700; color: var(--foreground); }
+.kpiCard.highlight .kpiValue { color: #2A9D8F; }
+.kpiUnit { font-size: 0.7rem; color: var(--muted-foreground); margin-left: 2px; }
+
+/* Tab nav */
+.tabNav { display: flex; gap: 0; border-bottom: 2px solid var(--border); margin-bottom: 24px; }
+.tabBtn {
+  padding: 10px 20px; font-size: 0.85rem; font-weight: 500; cursor: pointer;
+  border: none; background: none; color: var(--muted-foreground); position: relative; transition: all 0.2s;
+}
+.tabBtn:hover { color: var(--foreground); }
+.tabBtn.active { color: var(--foreground); font-weight: 700; }
+.tabBtn.active::after {
+  content: ''; position: absolute; bottom: -2px; left: 0; right: 0; height: 3px;
+  background: var(--foreground); border-radius: 2px 2px 0 0;
+}
+
+/* Section title */
+.sectionTitle { font-size: 1rem; font-weight: 700; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; color: var(--foreground); }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--foreground); }
+
+/* Cards */
+.card {
+  background: var(--card); border-radius: 12px; border: 1px solid var(--border);
+  padding: 20px; margin-bottom: 16px;
+}
+.cardTitle { font-size: 0.85rem; font-weight: 600; margin-bottom: 14px; color: var(--foreground); }
+
+/* Grid */
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+
+/* Metric selector */
+.metricSelector { display: flex; gap: 6px; margin-bottom: 14px; flex-wrap: wrap; }
+.metricBtn {
+  padding: 5px 12px; border-radius: 20px; font-size: 0.75rem; cursor: pointer;
+  border: 1.5px solid var(--border); background: var(--card); color: var(--muted-foreground);
+  transition: all 0.2s; font-weight: 500;
+}
+.metricBtn.active { border-color: var(--foreground); background: var(--foreground); color: var(--background); }
+.metricBtn:hover:not(.active) { border-color: var(--foreground); color: var(--foreground); }
+
+/* Toggle row */
+.toggleRow { display: flex; gap: 6px; margin-bottom: 12px; }
+.toggleBtn {
+  padding: 5px 12px; border-radius: 16px; font-size: 0.73rem; cursor: pointer;
+  border: 1px solid var(--border); background: var(--card); color: var(--muted-foreground); transition: 0.2s;
+}
+.toggleBtn.active { background: var(--foreground); color: var(--background); border-color: var(--foreground); }
+
+/* Data table */
+.dataTable { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+.dataTable th {
+  background: var(--muted); padding: 8px 10px; text-align: left; font-weight: 600;
+  border-bottom: 2px solid var(--border); color: var(--muted-foreground); font-size: 0.7rem;
+  text-transform: uppercase; letter-spacing: 0.5px;
+}
+.dataTable td { padding: 8px 10px; border-bottom: 1px solid var(--border); color: var(--foreground); }
+.dataTable tr:hover td { background: var(--accent); }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* Legend */
+.legendRow { display: flex; gap: 14px; margin-bottom: 10px; justify-content: center; }
+.legendItem { display: flex; align-items: center; gap: 5px; font-size: 0.75rem; color: var(--muted-foreground); }
+.legendDot { width: 10px; height: 10px; border-radius: 50%; }
+
+/* Loading / Error */
+.loading { display: flex; justify-content: center; align-items: center; height: 200px; color: var(--muted-foreground); font-size: 0.88rem; }
+.error { background: rgba(220, 38, 38, 0.08); border: 1px solid rgba(220, 38, 38, 0.2); border-radius: 8px; padding: 12px 16px; color: #DC2626; font-size: 0.82rem; margin-bottom: 16px; }
+
+/* Segment definition bar */
+.segDef {
+  display: flex; align-items: center; gap: 20px; flex-wrap: wrap;
+  padding: 14px 20px; margin-bottom: 16px; background: var(--card);
+  border-radius: 10px; border: 1px solid var(--border);
+}
+.segDefLabel { font-weight: 600; font-size: 0.82rem; color: var(--foreground); }
+.segInput {
+  width: 48px; padding: 4px 6px; border-radius: 6px; border: 1.5px solid var(--border);
+  font-size: 0.82rem; text-align: center; font-weight: 600; background: var(--background); color: var(--foreground);
+}
+
+/* Segment KPI cards */
+.segKpiRow { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+.segKpiCard {
+  flex: 1; min-width: 130px; background: var(--muted); border-radius: 10px;
+  padding: 14px 16px; text-align: center; border-left: 4px solid var(--foreground);
+}
+.segKpiLabel { font-size: 0.7rem; color: var(--muted-foreground); margin-bottom: 4px; font-weight: 500; }
+.segKpiValue { font-size: 1.2rem; font-weight: 700; }
+
+@media(max-width:900px) { .grid2 { grid-template-columns: 1fr; } }

@@ -1,4 +1,4 @@
-import { querySnowflakeLongRunning } from "@/lib/snowflake"
+import { querySnowflake } from "@/lib/snowflake"
 import {
   buildAbcSql,
   buildAbcSummarySql,
@@ -45,8 +45,8 @@ function mapRow(r: Record<string, unknown>): AbcRow {
 
 async function runPeriod(args: AbcQueryArgs): Promise<AbcResult> {
   const [rowsRaw, sumRaw] = await Promise.all([
-    querySnowflakeLongRunning(buildAbcSql(args), { pollIntervalMs: 500 }),
-    querySnowflakeLongRunning(buildAbcSummarySql({ conditions: args.conditions, tab: args.tab, unit: args.unit, period: args.period }), { pollIntervalMs: 500 }),
+    querySnowflake(buildAbcSql(args)),
+    querySnowflake(buildAbcSummarySql({ conditions: args.conditions, tab: args.tab, unit: args.unit, period: args.period })),
   ])
   const rows = rowsRaw.map(mapRow)
   const s = sumRaw[0] ?? {}

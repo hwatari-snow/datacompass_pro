@@ -1,10 +1,14 @@
 "use client"
 
 import { useConditions } from "@/components/conditions-context"
-import { Calendar, MapPin, Package, Users, SlidersHorizontal } from "lucide-react"
-import Link from "next/link"
+import { Calendar, MapPin, Package, Users, SlidersHorizontal, ChevronUp } from "lucide-react"
 
-export function FilterBar() {
+interface FilterBarProps {
+  onTogglePanel: () => void
+  panelOpen: boolean
+}
+
+export function FilterBar({ onTogglePanel, panelOpen }: FilterBarProps) {
   const { conditions, updateConditions } = useConditions()
 
   const storeLabel = conditions.storeCodes.length
@@ -98,15 +102,15 @@ export function FilterBar() {
       {/* Spacer */}
       <div className="flex-1" />
 
-      {/* Detail settings link */}
-      <Link
-        href="/analysis/conditions"
-        className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs font-medium transition-colors hover:bg-[var(--accent)]"
-        style={{ borderColor: "var(--border)", color: "var(--muted-foreground)" }}
+      {/* Detail settings button */}
+      <button
+        onClick={onTogglePanel}
+        className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs font-medium transition-colors hover:bg-[var(--accent)] ${panelOpen ? "bg-[var(--accent)]" : ""}`}
+        style={{ borderColor: panelOpen ? "var(--brand-primary)" : "var(--border)", color: panelOpen ? "var(--brand-primary)" : "var(--muted-foreground)" }}
       >
-        <SlidersHorizontal className="h-3 w-3" />
+        {panelOpen ? <ChevronUp className="h-3 w-3" /> : <SlidersHorizontal className="h-3 w-3" />}
         詳細条件
-      </Link>
+      </button>
     </div>
   )
 }

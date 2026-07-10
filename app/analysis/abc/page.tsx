@@ -18,10 +18,10 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 import { yen, num, pct, compact, delta } from "@/lib/format"
-import { getCurrentConditions } from "@/lib/conditions"
-import type { AbcResult, AbcRow, AbcCriteria, ProductUnit, StoreUnit, AnalysisConditions } from "@/lib/types"
+import { useConditions } from "@/components/conditions-context"
+import type { AbcResult, AbcRow, AbcCriteria, ProductUnit, StoreUnit } from "@/lib/types"
 
-const ABC_COLORS: Record<string, string> = { A: "#e53e3e", B: "#dd6b20", C: "#38a169" }
+const ABC_COLORS: Record<string, string> = { A: "#4F7CFF", B: "#7C5CFC", C: "#E85A71" }
 
 const PRODUCT_UNITS: { key: ProductUnit; label: string }[] = [
   { key: "item", label: "商品" },
@@ -46,7 +46,7 @@ const CRITERIA: { key: AbcCriteria; label: string }[] = [
 ]
 
 function Toggle<T extends string>({ options, value, onChange, variant = "blue" }: { options: { key: T; label: string }[]; value: T; onChange: (v: T) => void; variant?: "blue" | "red" }) {
-  const activeStyle = variant === "red" ? { background: "#e53e3e", borderColor: "#e53e3e", color: "#fff" } : { background: "#2b6cb0", borderColor: "#2b6cb0", color: "#fff" }
+  const activeStyle = variant === "red" ? { background: "#E85A71", borderColor: "#E85A71", color: "#fff" } : { background: "#4F7CFF", borderColor: "#4F7CFF", color: "#fff" }
   return (
     <div className="inline-flex rounded-md border overflow-hidden">
       {options.map((o) => (
@@ -67,7 +67,7 @@ function Toggle<T extends string>({ options, value, onChange, variant = "blue" }
 function Kpi({ label, value, prev, fmt }: { label: string; value: number; prev?: number; fmt: (n: number) => string }) {
   const d = prev != null ? delta(value, prev) : null
   return (
-    <Card style={{ borderColor: "#bee3f8" }}>
+    <Card style={{ borderColor: "#c7d7fe" }}>
       <CardContent className="pt-5">
         <p className="text-xs text-muted-foreground">{label}</p>
         <p className="text-2xl font-bold mt-1">{fmt(value)}</p>
@@ -82,7 +82,7 @@ function Kpi({ label, value, prev, fmt }: { label: string; value: number; prev?:
 }
 
 export default function AbcPage() {
-  const [conditions, setConditions] = React.useState<AnalysisConditions | null>(null)
+  const { conditions } = useConditions()
   const [tab, setTab] = React.useState<"product" | "store">("product")
   const [productUnit, setProductUnit] = React.useState<ProductUnit>("item")
   const [storeUnit, setStoreUnit] = React.useState<StoreUnit>("store")
@@ -94,14 +94,9 @@ export default function AbcPage() {
   const [q, setQ] = React.useState("")
   const [visibleCount, setVisibleCount] = React.useState(100)
 
-  React.useEffect(() => {
-    setConditions(getCurrentConditions())
-  }, [])
-
   const unit = tab === "product" ? productUnit : storeUnit
 
   const fetchData = React.useCallback(async () => {
-    if (!conditions) return
     setLoading(true)
     setError(null)
     try {
@@ -124,7 +119,7 @@ export default function AbcPage() {
   }, [conditions, tab, unit, criteria])
 
   React.useEffect(() => {
-    if (conditions) fetchData()
+    fetchData()
   }, [conditions, tab, unit, criteria, fetchData])
 
   const rows = data?.base.rows ?? []
@@ -258,7 +253,7 @@ export default function AbcPage() {
                       <Cell key={i} fill={ABC_COLORS[d.abc_class]} />
                     ))}
                   </Bar>
-                  <Line yAxisId="right" type="monotone" dataKey="cumulative" name="累積%" stroke="#0a2f5a" strokeWidth={2} dot={false} />
+                  <Line yAxisId="right" type="monotone" dataKey="cumulative" name="累積%" stroke="#1e3a5f" strokeWidth={2} dot={false} />
                 </ComposedChart>
               </ResponsiveContainer>
             </CardContent>

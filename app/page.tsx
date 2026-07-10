@@ -95,14 +95,14 @@ export default function OverviewPage() {
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <KpiCard
           title="登録店舗数"
-          value="842"
+          value="695"
           unit="店"
           icon={ShoppingCart}
           accentColor="var(--brand-cyan)"
         />
         <KpiCard
           title="商品マスタ件数"
-          value="700"
+          value="424"
           unit="万SKU"
           icon={BarChart3}
           accentColor="var(--brand-green)"

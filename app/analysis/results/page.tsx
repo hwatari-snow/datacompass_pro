@@ -3,21 +3,16 @@
 import { useState, useEffect, useMemo } from "react"
 import {
   BarChart, Bar, PieChart, Pie, Cell,
-  XAxis, YAxis, CartesianGrid, Tooltip, Legend,
-  ResponsiveContainer,
+  XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, ScatterChart, Scatter, ZAxis,
 } from "recharts"
-import { Filter, Download } from "lucide-react"
 import { useConditions } from "@/components/conditions-context"
+import s from "./results.module.css"
 
-async function safeFetch(url: string) {
-  const res = await fetch(url)
-  const text = await res.text()
-  try {
-    return JSON.parse(text)
-  } catch {
-    throw new Error(text.slice(0, 120))
-  }
-}
+const COLORS = { male: "#4A90D9", female: "#E8719E", accent: "#5BC8AC", accent2: "#E6D72A", accent3: "#F18D9E" }
+const PALETTE = ["#5BC8AC", "#4A90D9", "#E8719E", "#E6D72A", "#F18D9E", "#95A5A6", "#8E44AD", "#E67E22"]
+const SEG_COLORS: Record<string, string> = { "ヘビー": "#E74C3C", "ミドル": "#E6D72A", "ライト": "#5BC8AC" }
+const DAY_NAMES = ["日", "月", "火", "水", "木", "金", "土"]
 
 type TabType = "age_gender" | "area" | "behavior" | "trial_repeat"
 type ViewMode = "gender" | "age" | "age_gender"
@@ -39,376 +34,512 @@ const METRICS: { key: MetricKey; label: string; format: (v: number) => string }[
   { key: "avg_frequency", label: "平均購入回数", format: (v) => `${v}回` },
 ]
 
-const VIEW_MODES: { key: ViewMode; label: string }[] = [
-  { key: "gender", label: "男女別" },
-  { key: "age", label: "年代別" },
-  { key: "age_gender", label: "男女年代別" },
-]
-
-const COLORS = { male: "#4A90D9", female: "#E8719E", accent: "#5BC8AC" }
-const PIE_COLORS = ["#5BC8AC", "#4A90D9", "#E8719E", "#E6D72A", "#F18D9E", "#95A5A6", "#8E44AD", "#E67E22"]
-
-interface AgeGenderRow {
-  AGE_GROUP: string; GENDER: string; BUYERS: number; TOTAL_SALES: number;
-  AVG_SPEND: number; AVG_FREQUENCY: number; REPEATERS: number;
-}
-interface SummaryRow {
-  ACTIVE_MEMBERS: number; TOTAL_SALES: number; TOTAL_TRANSACTIONS: number;
-  AVG_BASKET: number; AVG_ITEMS: number; TOTAL_MEMBERS: number;
-}
-
 function formatNum(n: number) {
   if (n >= 100000000) return (n / 100000000).toFixed(1) + "億"
   if (n >= 10000) return (n / 10000).toFixed(1) + "万"
   return n.toLocaleString()
 }
+function round1(n: number) { return Math.round(n * 10) / 10 }
+
+async function safeFetch(url: string) {
+  const res = await fetch(url)
+  const text = await res.text()
+  try { return JSON.parse(text) } catch { throw new Error(text.slice(0, 120)) }
+}
+
+interface SummaryData { ACTIVE_MEMBERS: number; TOTAL_SALES: number; TOTAL_TRANSACTIONS: number; AVG_BASKET: number; AVG_ITEMS: number; TOTAL_MEMBERS: number }
+interface AgeGenderRow { AGE_GROUP: string; GENDER: string; BUYERS: number; TOTAL_SALES: number; AVG_SPEND: number; AVG_FREQUENCY: number; REPEATERS: number }
+interface AreaRow { AREA_NAME: string; TOTAL_SALES: number; TRANSACTIONS: number; BUYERS: number; STORE_COUNT: number; AVG_BASKET: number }
+interface BehaviorRow { DAY_OF_WEEK: number; TOTAL_SALES: number; TRANSACTIONS: number; BUYERS: number }
+interface FreqRow { COUNT: number; BUYERS: number; SALES: number; SHARE: number; SALES_SHARE: number }
 
 export default function ResultsPage() {
   const { conditions } = useConditions()
-  const [activeTab, setActiveTab] = useState<TabType>("age_gender")
-  const [metric, setMetric] = useState<MetricKey>("buyer_share")
-  const [viewMode, setViewMode] = useState<ViewMode>("age_gender")
-  const [data, setData] = useState<AgeGenderRow[]>([])
-  const [summary, setSummary] = useState<SummaryRow | null>(null)
+  const [tab, setTab] = useState<TabType>("age_gender")
+  const [summary, setSummary] = useState<SummaryData | null>(null)
+  const [ageData, setAgeData] = useState<AgeGenderRow[]>([])
+  const [areaData, setAreaData] = useState<AreaRow[]>([])
+  const [behaviorData, setBehaviorData] = useState<BehaviorRow[]>([])
+  const [freqData, setFreqData] = useState<FreqRow[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
 
-  const [categories, setCategories] = useState<string[]>([])
-  const [areas, setAreas] = useState<string[]>([])
-  const [selectedCategory, setSelectedCategory] = useState("")
-  const [selectedArea, setSelectedArea] = useState("")
+  const baseParams = useMemo(() => {
+    const p = new URLSearchParams()
+    if (conditions.baseStart) p.set("baseStart", conditions.baseStart)
+    if (conditions.baseEnd) p.set("baseEnd", conditions.baseEnd)
+    if (conditions.storeCodes.length) p.set("storeCodes", conditions.storeCodes.join(","))
+    if (conditions.mdCodes.length) p.set("mdCodes", conditions.mdCodes.join(","))
+    if (conditions.majorCodes.length) p.set("majorCodes", conditions.majorCodes.join(","))
+    if (conditions.middleCodes.length) p.set("middleCodes", conditions.middleCodes.join(","))
+    return p.toString()
+  }, [conditions.baseStart, conditions.baseEnd, conditions.storeCodes, conditions.mdCodes, conditions.majorCodes, conditions.middleCodes])
 
   useEffect(() => {
-    safeFetch("/api/analysis/filters").then((res) => {
-      setCategories(res.categories ?? [])
-      setAreas(res.areas ?? [])
-    }).catch(() => {})
-  }, [])
+    safeFetch(`/api/analysis?type=summary&${baseParams}`).then((r) => setSummary(r.data?.[0] ?? null)).catch(() => {})
+  }, [baseParams])
 
-  // Fetch summary KPIs
   useEffect(() => {
-    const params = new URLSearchParams({ type: "summary" })
-    if (selectedCategory) params.set("category", selectedCategory)
-    if (selectedArea) params.set("area", selectedArea)
-    if (conditions.baseStart) params.set("baseStart", conditions.baseStart)
-    if (conditions.baseEnd) params.set("baseEnd", conditions.baseEnd)
-    if (conditions.storeCodes.length) params.set("storeCodes", conditions.storeCodes.join(","))
-    if (conditions.itemCodes.length) params.set("itemCodes", conditions.itemCodes.join(","))
-    safeFetch(`/api/analysis?${params}`).then((res) => {
-      setSummary(res.data?.[0] ?? null)
-    }).catch(() => {})
-  }, [selectedCategory, selectedArea, conditions.baseStart, conditions.baseEnd, conditions.storeCodes, conditions.itemCodes])
-
-  // Fetch tab data
-  useEffect(() => {
-    setLoading(true)
-    setError("")
-    const params = new URLSearchParams({ type: activeTab })
-    if (selectedCategory) params.set("category", selectedCategory)
-    if (selectedArea) params.set("area", selectedArea)
-    if (conditions.baseStart) params.set("baseStart", conditions.baseStart)
-    if (conditions.baseEnd) params.set("baseEnd", conditions.baseEnd)
-    if (conditions.storeCodes.length) params.set("storeCodes", conditions.storeCodes.join(","))
-    if (conditions.itemCodes.length) params.set("itemCodes", conditions.itemCodes.join(","))
-    safeFetch(`/api/analysis?${params}`).then((res) => {
-      if (res.error) setError(res.error)
-      else setData(res.data ?? [])
-    }).catch((e) => setError(e.message)).finally(() => setLoading(false))
-  }, [activeTab, selectedCategory, selectedArea, conditions.baseStart, conditions.baseEnd, conditions.storeCodes, conditions.itemCodes])
-
-  const metricConfig = METRICS.find((m) => m.key === metric)!
-
-  // Compute derived metrics for age_gender tab
-  const totalBuyers = useMemo(() => data.reduce((s, d) => s + (d.BUYERS ?? 0), 0), [data])
-
-  const chartData = useMemo(() => {
-    if (activeTab !== "age_gender" || !data.length) return []
-    const ageGroups = [...new Set(data.map((d) => d.AGE_GROUP))].sort()
-
-    if (viewMode === "age_gender") {
-      return ageGroups.map((ag) => {
-        const male = data.find((d) => d.AGE_GROUP === ag && d.GENDER === "男性")
-        const female = data.find((d) => d.AGE_GROUP === ag && d.GENDER === "女性")
-        const getVal = (row: AgeGenderRow | undefined) => {
-          if (!row) return 0
-          switch (metric) {
-            case "buyer_share": return totalBuyers > 0 ? Math.round(row.BUYERS / totalBuyers * 1000) / 10 : 0
-            case "buyers": return row.BUYERS
-            case "purchase_rate": return 0 // would need total members per group
-            case "repeat_rate": return row.BUYERS > 0 ? Math.round(row.REPEATERS / row.BUYERS * 1000) / 10 : 0
-            case "avg_spend": return row.AVG_SPEND
-            case "avg_frequency": return row.AVG_FREQUENCY
-          }
-        }
-        return { age: ag, 男性: getVal(male), 女性: getVal(female) }
+    setLoading(true); setError("")
+    safeFetch(`/api/analysis?type=${tab}&${baseParams}`)
+      .then((r) => {
+        if (r.error) { setError(r.error); return }
+        const d = r.data ?? []
+        if (tab === "age_gender") setAgeData(d)
+        else if (tab === "area") setAreaData(d)
+        else if (tab === "behavior") setBehaviorData(d)
+        else if (tab === "trial_repeat") setFreqData(d)
       })
-    }
-    if (viewMode === "age") {
-      return ageGroups.map((ag) => {
-        const rows = data.filter((d) => d.AGE_GROUP === ag)
-        const buyers = rows.reduce((s, d) => s + d.BUYERS, 0)
-        const repeaters = rows.reduce((s, d) => s + d.REPEATERS, 0)
-        const totalSpend = rows.reduce((s, d) => s + d.AVG_SPEND * d.BUYERS, 0)
-        const totalFreq = rows.reduce((s, d) => s + d.AVG_FREQUENCY * d.BUYERS, 0)
-        let value = 0
-        switch (metric) {
-          case "buyer_share": value = totalBuyers > 0 ? Math.round(buyers / totalBuyers * 1000) / 10 : 0; break
-          case "buyers": value = buyers; break
-          case "repeat_rate": value = buyers > 0 ? Math.round(repeaters / buyers * 1000) / 10 : 0; break
-          case "avg_spend": value = buyers > 0 ? Math.round(totalSpend / buyers) : 0; break
-          case "avg_frequency": value = buyers > 0 ? Math.round(totalFreq / buyers * 10) / 10 : 0; break
-          default: value = buyers
-        }
-        return { age: ag, value }
-      })
-    }
-    // gender
-    const genders = ["男性", "女性"]
-    return genders.map((g) => {
-      const rows = data.filter((d) => d.GENDER === g)
-      const buyers = rows.reduce((s, d) => s + d.BUYERS, 0)
-      const repeaters = rows.reduce((s, d) => s + d.REPEATERS, 0)
-      const totalSpend = rows.reduce((s, d) => s + d.AVG_SPEND * d.BUYERS, 0)
-      const totalFreq = rows.reduce((s, d) => s + d.AVG_FREQUENCY * d.BUYERS, 0)
-      let value = 0
-      switch (metric) {
-        case "buyer_share": value = totalBuyers > 0 ? Math.round(buyers / totalBuyers * 1000) / 10 : 0; break
-        case "buyers": value = buyers; break
-        case "repeat_rate": value = buyers > 0 ? Math.round(repeaters / buyers * 1000) / 10 : 0; break
-        case "avg_spend": value = buyers > 0 ? Math.round(totalSpend / buyers) : 0; break
-        case "avg_frequency": value = buyers > 0 ? Math.round(totalFreq / buyers * 10) / 10 : 0; break
-        default: value = buyers
-      }
-      return { label: g, value }
-    })
-  }, [data, activeTab, viewMode, metric, totalBuyers])
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false))
+  }, [tab, baseParams])
 
   return (
-    <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-bold" style={{ color: "var(--foreground)" }}>属性分析結果</h1>
-          <p className="text-sm" style={{ color: "var(--muted-foreground)" }}>ID-POS会員の属性・行動パターンを多軸で分析</p>
-        </div>
-        <button className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium hover:bg-[var(--accent)]" style={{ borderColor: "var(--border)", color: "var(--foreground)" }}>
-          <Download className="h-3.5 w-3.5" /> Excel DL
-        </button>
+    <main className="w-full py-8 px-6">
+      {/* Header — same style as ABC page */}
+      <div className="flex items-center justify-between mb-1">
+        <h1 className="text-xl font-semibold">属性分析結果</h1>
       </div>
+      {conditions && (
+        <p className="text-sm text-muted-foreground mb-6">
+          分析期間 {conditions.baseStart}〜{conditions.baseEnd}
+          {" / "}
+          {conditions.storeCodes.length ? `${conditions.storeCodes.length}店舗` : "全店舗"}
+        </p>
+      )}
 
       {/* KPI Strip */}
       {summary && (
-        <div className="flex gap-3 overflow-x-auto pb-1">
+        <div className={s.kpiStrip}>
           {[
-            { label: "ユニーク会員数", value: formatNum(summary.ACTIVE_MEMBERS), unit: "人", highlight: true },
-            { label: "総売上金額", value: `¥${formatNum(summary.TOTAL_SALES)}`, unit: "", highlight: true },
-            { label: "総取引件数", value: formatNum(summary.TOTAL_TRANSACTIONS), unit: "件" },
-            { label: "平均客単価", value: `¥${formatNum(summary.AVG_BASKET)}`, unit: "" },
-            { label: "平均買上点数", value: String(summary.AVG_ITEMS ?? 0), unit: "点" },
-            { label: "総会員数", value: formatNum(summary.TOTAL_MEMBERS), unit: "人" },
-          ].map((kpi, i) => (
-            <div key={i} className="flex-1 min-w-[130px] rounded-xl p-4 text-center" style={{ backgroundColor: kpi.highlight ? "rgba(91, 200, 172, 0.08)" : "var(--muted)" }}>
-              <p className="text-[11px] font-medium" style={{ color: "var(--muted-foreground)" }}>{kpi.label}</p>
-              <p className="text-xl font-bold mt-1" style={{ color: kpi.highlight ? "#2A9D8F" : "var(--foreground)" }}>
-                {kpi.value}<span className="text-xs font-normal ml-0.5" style={{ color: "var(--muted-foreground)" }}>{kpi.unit}</span>
-              </p>
+            { label: "ユニーク会員数", value: formatNum(summary.ACTIVE_MEMBERS), unit: "人", hl: true },
+            { label: "総売上金額", value: `¥${formatNum(summary.TOTAL_SALES)}`, unit: "", hl: true },
+            { label: "総取引件数", value: formatNum(summary.TOTAL_TRANSACTIONS), unit: "件", hl: false },
+            { label: "平均客単価", value: `¥${formatNum(summary.AVG_BASKET)}`, unit: "", hl: false },
+            { label: "平均買上点数", value: String(summary.AVG_ITEMS ?? 0), unit: "点", hl: false },
+            { label: "総会員数", value: formatNum(summary.TOTAL_MEMBERS), unit: "人", hl: false },
+          ].map((k, i) => (
+            <div key={i} className={`${s.kpiCard} ${k.hl ? s.highlight : ""}`}>
+              <div className={s.kpiLabel}>{k.label}</div>
+              <div className={s.kpiValue}>{k.value}<span className={s.kpiUnit}>{k.unit}</span></div>
             </div>
           ))}
         </div>
       )}
 
-      {/* Filters */}
-      <div className="flex flex-wrap items-center gap-3 rounded-xl border p-3" style={{ backgroundColor: "var(--card)", borderColor: "var(--border)" }}>
-        <div className="flex items-center gap-1.5" style={{ color: "var(--muted-foreground)" }}>
-          <Filter className="h-4 w-4" /><span className="text-xs font-medium">フィルター</span>
-        </div>
-        <select value={selectedCategory} onChange={(e) => setSelectedCategory(e.target.value)} className="rounded-md border px-3 py-1.5 text-sm outline-none" style={{ backgroundColor: "var(--background)", borderColor: "var(--border)", color: "var(--foreground)" }}>
-          <option value="">全カテゴリ</option>
-          {categories.map((c) => <option key={c} value={c}>{c}</option>)}
-        </select>
-        <select value={selectedArea} onChange={(e) => setSelectedArea(e.target.value)} className="rounded-md border px-3 py-1.5 text-sm outline-none" style={{ backgroundColor: "var(--background)", borderColor: "var(--border)", color: "var(--foreground)" }}>
-          <option value="">全エリア</option>
-          {areas.map((a) => <option key={a} value={a}>{a}</option>)}
-        </select>
-        {(selectedCategory || selectedArea) && (
-          <button onClick={() => { setSelectedCategory(""); setSelectedArea("") }} className="rounded-md px-2 py-1 text-xs hover:bg-[var(--accent)]" style={{ color: "var(--muted-foreground)" }}>クリア</button>
-        )}
-      </div>
-
       {/* Tabs */}
-      <div className="flex border-b" style={{ borderColor: "var(--border)" }}>
-        {TABS.map((tab) => (
-          <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-            className="px-5 py-3 text-sm font-medium relative transition-colors"
-            style={{ color: activeTab === tab.id ? COLORS.accent : "var(--muted-foreground)" }}
-          >
-            {tab.label}
-            {activeTab === tab.id && <span className="absolute bottom-0 left-0 right-0 h-[3px] rounded-t" style={{ backgroundColor: COLORS.accent }} />}
-          </button>
+      <div className={s.tabNav}>
+        {TABS.map((t) => (
+          <button key={t.id} className={`${s.tabBtn} ${tab === t.id ? s.active : ""}`} onClick={() => setTab(t.id)}>{t.label}</button>
         ))}
       </div>
 
-      {/* Age Gender specific controls */}
-      {activeTab === "age_gender" && (
-        <div className="space-y-3">
-          {/* View mode toggle */}
-          <div className="flex gap-2">
-            {VIEW_MODES.map((v) => (
-              <button key={v.key} onClick={() => setViewMode(v.key)}
-                className="rounded-full border px-3 py-1 text-xs font-medium transition-colors"
-                style={viewMode === v.key ? { backgroundColor: "var(--foreground)", color: "var(--background)", borderColor: "var(--foreground)" } : { borderColor: "var(--border)", color: "var(--muted-foreground)" }}
-              >{v.label}</button>
-            ))}
-          </div>
-          {/* Metric selector */}
-          <div className="flex flex-wrap gap-1.5">
-            {METRICS.map((m) => (
-              <button key={m.key} onClick={() => setMetric(m.key)}
-                className="rounded-full border px-3 py-1.5 text-xs font-medium transition-colors"
-                style={metric === m.key ? { backgroundColor: COLORS.accent, color: "white", borderColor: COLORS.accent } : { borderColor: "var(--border)", color: "var(--muted-foreground)" }}
-              >{m.label}</button>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* Content */}
+      <div>
+        {loading && <div className={s.loading}>分析データを取得中...</div>}
+        {error && <div className={s.error}>{error}</div>}
+        {!loading && !error && tab === "age_gender" && <AgeGenderTab data={ageData} />}
+        {!loading && !error && tab === "area" && <AreaTab data={areaData} />}
+        {!loading && !error && tab === "behavior" && <BehaviorTab data={behaviorData} />}
+        {!loading && !error && tab === "trial_repeat" && <TrialRepeatTab data={freqData} />}
+      </div>
+    </main>
+  )
+}
 
-      {/* Loading / Error */}
-      {loading && (
-        <div className="flex h-48 items-center justify-center rounded-xl border" style={{ backgroundColor: "var(--card)", borderColor: "var(--border)" }}>
-          <div className="flex items-center gap-2" style={{ color: "var(--muted-foreground)" }}>
-            <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />分析データを取得中...
-          </div>
-        </div>
-      )}
-      {error && <div className="rounded-xl border border-red-500/30 p-4" style={{ backgroundColor: "var(--card)" }}><p className="text-sm text-red-400">{error}</p></div>}
+/* ============ Age Gender Tab ============ */
+function AgeGenderTab({ data }: { data: AgeGenderRow[] }) {
+  const [metric, setMetric] = useState<MetricKey>("buyer_share")
+  const [viewMode, setViewMode] = useState<ViewMode>("age_gender")
+  const m = METRICS.find((x) => x.key === metric)!
 
-      {/* Chart */}
-      {!loading && !error && activeTab === "age_gender" && chartData.length > 0 && (
-        <div className="rounded-xl border p-5" style={{ backgroundColor: "var(--card)", borderColor: "var(--border)" }}>
-          <h3 className="text-sm font-semibold mb-4" style={{ color: "var(--foreground)" }}>
-            {metricConfig.label}（{VIEW_MODES.find((v) => v.key === viewMode)?.label}）
-          </h3>
-          {viewMode === "age_gender" && (
-            <div className="flex gap-4 justify-center mb-2">
-              <span className="flex items-center gap-1.5 text-xs" style={{ color: "var(--muted-foreground)" }}><span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: COLORS.male }} />男性</span>
-              <span className="flex items-center gap-1.5 text-xs" style={{ color: "var(--muted-foreground)" }}><span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: COLORS.female }} />女性</span>
-            </div>
+  const totalBuyers = useMemo(() => data.reduce((acc, d) => acc + (d.BUYERS ?? 0), 0), [data])
+  const ageBins = useMemo(() => [...new Set(data.map((d) => d.AGE_GROUP))].sort(), [data])
+
+  const getVal = (row: AgeGenderRow | undefined) => {
+    if (!row) return 0
+    switch (metric) {
+      case "buyer_share": return totalBuyers > 0 ? round1(row.BUYERS / totalBuyers * 100) : 0
+      case "buyers": return row.BUYERS
+      case "repeat_rate": return row.BUYERS > 0 ? round1(row.REPEATERS / row.BUYERS * 100) : 0
+      case "avg_spend": return row.AVG_SPEND
+      case "avg_frequency": return row.AVG_FREQUENCY
+      default: return row.BUYERS
+    }
+  }
+
+  const chartData = useMemo(() => {
+    if (viewMode === "age_gender") {
+      return ageBins.map((ag) => ({
+        age: ag,
+        男性: getVal(data.find((d) => d.AGE_GROUP === ag && d.GENDER === "男性")),
+        女性: getVal(data.find((d) => d.AGE_GROUP === ag && d.GENDER === "女性")),
+      }))
+    }
+    if (viewMode === "age") {
+      return ageBins.map((ag) => {
+        const rows = data.filter((d) => d.AGE_GROUP === ag)
+        const buyers = rows.reduce((acc, d) => acc + d.BUYERS, 0)
+        const repeaters = rows.reduce((acc, d) => acc + d.REPEATERS, 0)
+        const spendSum = rows.reduce((acc, d) => acc + d.AVG_SPEND * d.BUYERS, 0)
+        const freqSum = rows.reduce((acc, d) => acc + d.AVG_FREQUENCY * d.BUYERS, 0)
+        let value = 0
+        switch (metric) {
+          case "buyer_share": value = totalBuyers > 0 ? round1(buyers / totalBuyers * 100) : 0; break
+          case "buyers": value = buyers; break
+          case "repeat_rate": value = buyers > 0 ? round1(repeaters / buyers * 100) : 0; break
+          case "avg_spend": value = buyers > 0 ? Math.round(spendSum / buyers) : 0; break
+          case "avg_frequency": value = buyers > 0 ? round1(freqSum / buyers) : 0; break
+          default: value = buyers
+        }
+        return { age: ag, value }
+      })
+    }
+    return ["男性", "女性"].map((g) => {
+      const rows = data.filter((d) => d.GENDER === g)
+      const buyers = rows.reduce((acc, d) => acc + d.BUYERS, 0)
+      const repeaters = rows.reduce((acc, d) => acc + d.REPEATERS, 0)
+      const spendSum = rows.reduce((acc, d) => acc + d.AVG_SPEND * d.BUYERS, 0)
+      const freqSum = rows.reduce((acc, d) => acc + d.AVG_FREQUENCY * d.BUYERS, 0)
+      let value = 0
+      switch (metric) {
+        case "buyer_share": value = totalBuyers > 0 ? round1(buyers / totalBuyers * 100) : 0; break
+        case "buyers": value = buyers; break
+        case "repeat_rate": value = buyers > 0 ? round1(repeaters / buyers * 100) : 0; break
+        case "avg_spend": value = buyers > 0 ? Math.round(spendSum / buyers) : 0; break
+        case "avg_frequency": value = buyers > 0 ? round1(freqSum / buyers) : 0; break
+        default: value = buyers
+      }
+      return { label: g, value }
+    })
+  }, [data, viewMode, metric, totalBuyers, ageBins])
+
+  const VIEW_MODES: { key: ViewMode; label: string }[] = [
+    { key: "gender", label: "男女別" }, { key: "age", label: "年代別" }, { key: "age_gender", label: "男女年代別" },
+  ]
+
+  return (
+    <div>
+      <div className={s.sectionTitle}><span className={s.dot} />属性分析</div>
+      <div className={s.toggleRow}>
+        {VIEW_MODES.map((v) => (
+          <button key={v.key} className={`${s.toggleBtn} ${viewMode === v.key ? s.active : ""}`} onClick={() => setViewMode(v.key)}>{v.label}</button>
+        ))}
+      </div>
+      <div className={s.metricSelector}>
+        {METRICS.map((mt) => (
+          <button key={mt.key} className={`${s.metricBtn} ${metric === mt.key ? s.active : ""}`} onClick={() => setMetric(mt.key)}>{mt.label}</button>
+        ))}
+      </div>
+      <div className={s.card}>
+        <div className={s.cardTitle}>{m.label}（{VIEW_MODES.find((v) => v.key === viewMode)?.label}）</div>
+        {viewMode === "age_gender" && (
+          <div className={s.legendRow}>
+            <span className={s.legendItem}><span className={s.legendDot} style={{ background: COLORS.male }} />男性</span>
+            <span className={s.legendItem}><span className={s.legendDot} style={{ background: COLORS.female }} />女性</span>
+          </div>
+        )}
+        <ResponsiveContainer width="100%" height={360}>
+          {viewMode === "age_gender" ? (
+            <BarChart data={chartData} margin={{ top: 5, right: 20, bottom: 20, left: 20 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#E8ECF0" />
+              <XAxis dataKey="age" tick={{ fontSize: 11 }} />
+              <YAxis tick={{ fontSize: 11 }} />
+              <Tooltip />
+              <Bar dataKey="男性" fill={COLORS.male} radius={[4, 4, 0, 0]} barSize={20} />
+              <Bar dataKey="女性" fill={COLORS.female} radius={[4, 4, 0, 0]} barSize={20} />
+            </BarChart>
+          ) : viewMode === "age" ? (
+            <BarChart data={chartData} margin={{ top: 5, right: 20, bottom: 20, left: 20 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#E8ECF0" />
+              <XAxis dataKey="age" tick={{ fontSize: 11 }} />
+              <YAxis tick={{ fontSize: 11 }} />
+              <Tooltip />
+              <Bar dataKey="value" name={m.label} fill={COLORS.accent} radius={[4, 4, 0, 0]} barSize={32} />
+            </BarChart>
+          ) : (
+            <BarChart data={chartData} margin={{ top: 5, right: 20, bottom: 5, left: 20 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#E8ECF0" />
+              <XAxis dataKey="label" tick={{ fontSize: 13 }} />
+              <YAxis tick={{ fontSize: 11 }} />
+              <Tooltip />
+              <Bar dataKey="value" name={m.label} radius={[6, 6, 0, 0]} barSize={60}>
+                {(chartData as { label?: string }[]).map((d, i) => <Cell key={i} fill={d.label === "男性" ? COLORS.male : COLORS.female} />)}
+              </Bar>
+            </BarChart>
           )}
-          <ResponsiveContainer width="100%" height={350}>
-            {viewMode === "age_gender" ? (
-              <BarChart data={chartData} margin={{ top: 5, right: 20, bottom: 20, left: 20 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                <XAxis dataKey="age" tick={{ fill: "var(--muted-foreground)", fontSize: 11 }} />
-                <YAxis tick={{ fill: "var(--muted-foreground)", fontSize: 11 }} />
-                <Tooltip contentStyle={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", borderRadius: 8 }} />
-                <Bar dataKey="男性" fill={COLORS.male} radius={[4, 4, 0, 0]} barSize={20} />
-                <Bar dataKey="女性" fill={COLORS.female} radius={[4, 4, 0, 0]} barSize={20} />
-              </BarChart>
-            ) : viewMode === "age" ? (
-              <BarChart data={chartData} margin={{ top: 5, right: 20, bottom: 20, left: 20 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                <XAxis dataKey="age" tick={{ fill: "var(--muted-foreground)", fontSize: 11 }} />
-                <YAxis tick={{ fill: "var(--muted-foreground)", fontSize: 11 }} />
-                <Tooltip contentStyle={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", borderRadius: 8 }} />
-                <Bar dataKey="value" name={metricConfig.label} fill={COLORS.accent} radius={[4, 4, 0, 0]} barSize={32} />
-              </BarChart>
-            ) : (
-              <BarChart data={chartData} margin={{ top: 5, right: 20, bottom: 5, left: 20 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                <XAxis dataKey="label" tick={{ fill: "var(--muted-foreground)", fontSize: 13 }} />
-                <YAxis tick={{ fill: "var(--muted-foreground)", fontSize: 11 }} />
-                <Tooltip contentStyle={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", borderRadius: 8 }} />
-                <Bar dataKey="value" name={metricConfig.label} radius={[6, 6, 0, 0]} barSize={60}>
-                  {chartData.map((d, i) => <Cell key={i} fill={(d as { label?: string }).label === "男性" ? COLORS.male : COLORS.female} />)}
-                </Bar>
-              </BarChart>
-            )}
+        </ResponsiveContainer>
+      </div>
+
+      {/* Detail table */}
+      <div className={s.card}>
+        <div className={s.cardTitle}>{VIEW_MODES.find((v) => v.key === viewMode)?.label} 詳細テーブル</div>
+        <table className={s.dataTable}>
+          <thead><tr>
+            <th>年代</th>{viewMode === "age_gender" && <th>性別</th>}
+            <th className={s.num}>構成比</th><th className={s.num}>購入者数</th>
+            <th className={s.num}>リピート率</th><th className={s.num}>平均金額</th><th className={s.num}>平均回数</th>
+          </tr></thead>
+          <tbody>
+            {data.map((row, i) => {
+              const share = totalBuyers > 0 ? round1(row.BUYERS / totalBuyers * 100) : 0
+              const rr = row.BUYERS > 0 ? round1(row.REPEATERS / row.BUYERS * 100) : 0
+              return (
+                <tr key={i}>
+                  <td style={{ fontWeight: 600 }}>{row.AGE_GROUP}</td>
+                  {viewMode === "age_gender" && <td style={{ color: row.GENDER === "男性" ? COLORS.male : COLORS.female }}>{row.GENDER}</td>}
+                  <td className={s.num}>{share}%</td>
+                  <td className={s.num}>{row.BUYERS?.toLocaleString()}</td>
+                  <td className={s.num}>{rr}%</td>
+                  <td className={s.num}>¥{row.AVG_SPEND?.toLocaleString()}</td>
+                  <td className={s.num}>{row.AVG_FREQUENCY}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+/* ============ Area Tab ============ */
+function AreaTab({ data }: { data: AreaRow[] }) {
+  const [metric, setMetric] = useState("TOTAL_SALES")
+  const areaMetrics = [
+    { key: "TOTAL_SALES", label: "総売上金額", format: (v: number) => `¥${formatNum(v)}` },
+    { key: "TRANSACTIONS", label: "取引件数", format: (v: number) => formatNum(v) },
+    { key: "BUYERS", label: "購入者数", format: (v: number) => formatNum(v) },
+    { key: "AVG_BASKET", label: "平均客単価", format: (v: number) => `¥${v.toLocaleString()}` },
+  ]
+  const am = areaMetrics.find((x) => x.key === metric)!
+
+  const sorted = useMemo(() => [...data].sort((a, b) => (b[metric as keyof AreaRow] as number) - (a[metric as keyof AreaRow] as number)), [data, metric])
+
+  return (
+    <div>
+      <div className={s.sectionTitle}><span className={s.dot} style={{ background: "#E6D72A" }} />エリア別分析</div>
+      <div className={s.metricSelector}>
+        {areaMetrics.map((mt) => (
+          <button key={mt.key} className={`${s.metricBtn} ${metric === mt.key ? s.active : ""}`} onClick={() => setMetric(mt.key)}>{mt.label}</button>
+        ))}
+      </div>
+      <div className={s.card}>
+        <div className={s.cardTitle}>エリア別 {am.label}</div>
+        <ResponsiveContainer width="100%" height={Math.max(300, sorted.length * 36)}>
+          <BarChart data={sorted} layout="vertical" margin={{ top: 5, right: 30, bottom: 5, left: 80 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#E8ECF0" />
+            <XAxis type="number" tick={{ fontSize: 11 }} />
+            <YAxis type="category" dataKey="AREA_NAME" tick={{ fontSize: 12 }} width={75} />
+            <Tooltip formatter={(v: number) => am.format(v)} />
+            <Bar dataKey={metric} fill={COLORS.accent} radius={[0, 6, 6, 0]} barSize={24} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+      <div className={s.card}>
+        <div className={s.cardTitle}>エリア別 詳細テーブル</div>
+        <table className={s.dataTable}>
+          <thead><tr>
+            <th>エリア</th><th className={s.num}>店舗数</th><th className={s.num}>売上金額</th>
+            <th className={s.num}>取引件数</th><th className={s.num}>購入者数</th><th className={s.num}>客単価</th>
+          </tr></thead>
+          <tbody>
+            {sorted.map((d, i) => (
+              <tr key={i}>
+                <td style={{ fontWeight: 600 }}>{d.AREA_NAME}</td>
+                <td className={s.num}>{d.STORE_COUNT}</td>
+                <td className={s.num}>¥{formatNum(d.TOTAL_SALES)}</td>
+                <td className={s.num}>{d.TRANSACTIONS?.toLocaleString()}</td>
+                <td className={s.num}>{d.BUYERS?.toLocaleString()}</td>
+                <td className={s.num}>¥{d.AVG_BASKET?.toLocaleString()}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+/* ============ Behavior Tab ============ */
+function BehaviorTab({ data }: { data: BehaviorRow[] }) {
+  const [metric, setMetric] = useState("TRANSACTIONS")
+  const bMetrics = [
+    { key: "TRANSACTIONS", label: "取引件数", format: (v: number) => v.toLocaleString() + "件" },
+    { key: "TOTAL_SALES", label: "売上金額", format: (v: number) => `¥${formatNum(v)}` },
+    { key: "BUYERS", label: "購入者数", format: (v: number) => v.toLocaleString() + "人" },
+  ]
+  const bm = bMetrics.find((x) => x.key === metric)!
+
+  const chartData = useMemo(() =>
+    data.map((d) => ({ ...d, day: DAY_NAMES[d.DAY_OF_WEEK] || String(d.DAY_OF_WEEK) })),
+    [data]
+  )
+
+  const peakDay = useMemo(() => {
+    if (!chartData.length) return ""
+    const max = Math.max(...chartData.map((d) => (d[metric as keyof typeof d] as number) ?? 0))
+    return chartData.find((d) => (d[metric as keyof typeof d] as number) === max)?.day ?? ""
+  }, [chartData, metric])
+
+  return (
+    <div>
+      <div className={s.sectionTitle}><span className={s.dot} style={{ background: "#F18D9E" }} />購買行動分析（曜日別）</div>
+      <div className={s.metricSelector}>
+        {bMetrics.map((mt) => (
+          <button key={mt.key} className={`${s.metricBtn} ${metric === mt.key ? s.active : ""}`} onClick={() => setMetric(mt.key)}>{mt.label}</button>
+        ))}
+      </div>
+      <div className={s.card}>
+        <div className={s.cardTitle}>曜日別 {bm.label}</div>
+        <ResponsiveContainer width="100%" height={350}>
+          <BarChart data={chartData} margin={{ top: 5, right: 20, bottom: 20, left: 20 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#E8ECF0" />
+            <XAxis dataKey="day" tick={{ fontSize: 12 }} tickFormatter={(v) => v + "曜"} />
+            <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => formatNum(v)} />
+            <Tooltip formatter={(v: number) => bm.format(v)} />
+            <Bar dataKey={metric} name={bm.label} radius={[4, 4, 0, 0]} barSize={36}>
+              {chartData.map((d, i) => <Cell key={i} fill={d.day === peakDay ? "#E74C3C" : COLORS.accent} />)}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+        {peakDay && <p style={{ textAlign: "center", fontSize: "0.75rem", color: "#7F8C8D", marginTop: 4 }}>※ピーク曜日（{peakDay}曜日）を赤で強調</p>}
+      </div>
+      <div className={s.card}>
+        <div className={s.cardTitle}>曜日別 詳細テーブル</div>
+        <table className={s.dataTable}>
+          <thead><tr>
+            <th>曜日</th><th className={s.num}>取引件数</th><th className={s.num}>売上金額</th><th className={s.num}>購入者数</th>
+          </tr></thead>
+          <tbody>
+            {chartData.map((d, i) => (
+              <tr key={i}>
+                <td style={{ fontWeight: 600 }}>{d.day}曜日</td>
+                <td className={s.num}>{d.TRANSACTIONS?.toLocaleString()}</td>
+                <td className={s.num}>¥{formatNum(d.TOTAL_SALES)}</td>
+                <td className={s.num}>{d.BUYERS?.toLocaleString()}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+/* ============ Trial/Repeat Tab ============ */
+function TrialRepeatTab({ data }: { data: FreqRow[] }) {
+  const [middleMin, setMiddleMin] = useState(2)
+  const [heavyMin, setHeavyMin] = useState(5)
+
+  const segments = useMemo(() => {
+    const totalBuyers = data.reduce((acc, d) => acc + d.BUYERS, 0)
+    const totalSales = data.reduce((acc, d) => acc + d.SALES, 0)
+    const groups: Record<string, { buyers: number; sales: number }> = { "ライト": { buyers: 0, sales: 0 }, "ミドル": { buyers: 0, sales: 0 }, "ヘビー": { buyers: 0, sales: 0 } }
+    data.forEach((d) => {
+      const c = d.COUNT
+      const seg = c >= heavyMin ? "ヘビー" : c >= middleMin ? "ミドル" : "ライト"
+      groups[seg].buyers += d.BUYERS
+      groups[seg].sales += d.SALES
+    })
+    return ["ライト", "ミドル", "ヘビー"].map((seg) => ({
+      segment: seg,
+      definition: seg === "ライト" ? `1~${middleMin - 1}回` : seg === "ミドル" ? `${middleMin}~${heavyMin - 1}回` : `${heavyMin}回以上`,
+      buyers: groups[seg].buyers,
+      buyer_share: totalBuyers > 0 ? round1(groups[seg].buyers / totalBuyers * 100) : 0,
+      sales: groups[seg].sales,
+      sales_share: totalSales > 0 ? round1(groups[seg].sales / totalSales * 100) : 0,
+    }))
+  }, [data, middleMin, heavyMin])
+
+  const totalBuyers = data.reduce((acc, d) => acc + d.BUYERS, 0)
+
+  return (
+    <div>
+      <div className={s.sectionTitle}><span className={s.dot} style={{ background: "#8E44AD" }} />トライアル/リピート分析</div>
+
+      {/* Segment definition */}
+      <div className={s.segDef}>
+        <div className={s.segDefLabel}>セグメント定義</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: "0.8rem", color: SEG_COLORS["ライト"], fontWeight: 600 }}>ライト</span>
+          <span style={{ fontSize: "0.78rem", color: "#7F8C8D" }}>1~</span>
+          <input type="number" className={s.segInput} min={2} max={heavyMin - 1} value={middleMin} onChange={(e) => { const v = parseInt(e.target.value); if (v >= 2 && v < heavyMin) setMiddleMin(v) }} />
+          <span style={{ fontSize: "0.78rem", color: "#7F8C8D" }}>回未満</span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: "0.8rem", color: SEG_COLORS["ミドル"], fontWeight: 600 }}>ミドル</span>
+          <span style={{ fontSize: "0.78rem", color: "#7F8C8D" }}>{middleMin}~</span>
+          <input type="number" className={s.segInput} min={middleMin + 1} max={20} value={heavyMin} onChange={(e) => { const v = parseInt(e.target.value); if (v > middleMin && v <= 20) setHeavyMin(v) }} />
+          <span style={{ fontSize: "0.78rem", color: "#7F8C8D" }}>回未満</span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: "0.8rem", color: SEG_COLORS["ヘビー"], fontWeight: 600 }}>ヘビー</span>
+          <span style={{ fontSize: "0.78rem", color: "#7F8C8D" }}>{heavyMin}回以上</span>
+        </div>
+      </div>
+
+
+
+      <div className={s.grid2}>
+        {/* Frequency distribution */}
+        <div className={s.card}>
+          <div className={s.cardTitle}>購入回数分布</div>
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={data} margin={{ top: 5, right: 20, bottom: 20, left: 20 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#E8ECF0" />
+              <XAxis dataKey="COUNT" tick={{ fontSize: 11 }} tickFormatter={(v) => v >= 11 ? "11+" : v + "回"} />
+              <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => formatNum(v)} />
+              <Tooltip formatter={(v: number) => v.toLocaleString() + "人"} />
+              <Bar dataKey="BUYERS" name="購入者数" fill={COLORS.accent} radius={[4, 4, 0, 0]} barSize={28} />
+            </BarChart>
           </ResponsiveContainer>
         </div>
-      )}
 
-      {/* Area / Behavior / Trial Repeat - generic table */}
-      {!loading && !error && activeTab !== "age_gender" && data.length > 0 && (
-        <div className="rounded-xl border p-5" style={{ backgroundColor: "var(--card)", borderColor: "var(--border)" }}>
-          {activeTab === "trial_repeat" ? (
-            <ResponsiveContainer width="100%" height={280}>
-              <PieChart>
-                <Pie data={data} dataKey="MEMBER_COUNT" nameKey="SEGMENT" cx="50%" cy="50%" outerRadius={100} innerRadius={50} label={({ SEGMENT, percent }) => `${SEGMENT} ${(percent * 100).toFixed(0)}%`} labelLine={false}>
-                  {data.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
-                </Pie>
-                <Tooltip />
-              </PieChart>
-            </ResponsiveContainer>
-          ) : (
-            <ResponsiveContainer width="100%" height={320}>
-              <BarChart data={data} margin={{ top: 5, right: 20, bottom: 20, left: 20 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                <XAxis dataKey={activeTab === "area" ? "AREA_NAME" : "DAY_OF_WEEK"} tick={{ fill: "var(--muted-foreground)", fontSize: 11 }} />
-                <YAxis tick={{ fill: "var(--muted-foreground)", fontSize: 11 }} />
-                <Tooltip contentStyle={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", borderRadius: 8 }} />
-                <Legend />
-                <Bar dataKey="TOTAL_SALES" name="売上金額" fill={COLORS.accent} radius={[4, 4, 0, 0]} />
-                <Bar dataKey="BUYERS" name="購入者数" fill={COLORS.male} radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          )}
-        </div>
-      )}
-
-      {/* Detail table for age_gender */}
-      {!loading && !error && activeTab === "age_gender" && data.length > 0 && (
-        <div className="rounded-xl border overflow-hidden" style={{ backgroundColor: "var(--card)", borderColor: "var(--border)" }}>
-          <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: "var(--border)" }}>
-            <span className="text-sm font-semibold" style={{ color: "var(--foreground)" }}>{VIEW_MODES.find((v) => v.key === viewMode)?.label} 詳細テーブル</span>
-            <button
-              className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-semibold transition-colors hover:opacity-80"
-              style={{ borderColor: "var(--brand-green)", color: "var(--brand-green)" }}
-            >
-              <Download className="h-3 w-3" />Excelダウンロード
-            </button>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr style={{ backgroundColor: "var(--muted)" }}>
-                  <th className="px-3 py-2 text-left text-xs font-semibold" style={{ color: "var(--muted-foreground)" }}>年代</th>
-                  {viewMode === "age_gender" && <th className="px-3 py-2 text-left text-xs font-semibold" style={{ color: "var(--muted-foreground)" }}>性別</th>}
-                  <th className="px-3 py-2 text-right text-xs font-semibold" style={{ color: "var(--muted-foreground)" }}>構成比</th>
-                  <th className="px-3 py-2 text-right text-xs font-semibold" style={{ color: "var(--muted-foreground)" }}>購入者数</th>
-                  <th className="px-3 py-2 text-right text-xs font-semibold" style={{ color: "var(--muted-foreground)" }}>リピート率</th>
-                  <th className="px-3 py-2 text-right text-xs font-semibold" style={{ color: "var(--muted-foreground)" }}>平均金額</th>
-                  <th className="px-3 py-2 text-right text-xs font-semibold" style={{ color: "var(--muted-foreground)" }}>平均回数</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.map((row, i) => {
-                  const share = totalBuyers > 0 ? Math.round(row.BUYERS / totalBuyers * 1000) / 10 : 0
-                  const repeatRate = row.BUYERS > 0 ? Math.round(row.REPEATERS / row.BUYERS * 1000) / 10 : 0
-                  return (
-                    <tr key={i} className="border-t" style={{ borderColor: "var(--border)" }}>
-                      <td className="px-3 py-2 font-medium" style={{ color: "var(--foreground)" }}>{row.AGE_GROUP}</td>
-                      {viewMode === "age_gender" && (
-                        <td className="px-3 py-2" style={{ color: row.GENDER === "男性" ? COLORS.male : COLORS.female }}>{row.GENDER}</td>
-                      )}
-                      <td className="px-3 py-2 text-right" style={{ color: "var(--foreground)" }}>{share}%</td>
-                      <td className="px-3 py-2 text-right" style={{ color: "var(--foreground)" }}>{row.BUYERS?.toLocaleString()}</td>
-                      <td className="px-3 py-2 text-right" style={{ color: "var(--foreground)" }}>{repeatRate}%</td>
-                      <td className="px-3 py-2 text-right" style={{ color: "var(--foreground)" }}>¥{row.AVG_SPEND?.toLocaleString()}</td>
-                      <td className="px-3 py-2 text-right" style={{ color: "var(--foreground)" }}>{row.AVG_FREQUENCY}</td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
+        {/* Segment pie */}
+        <div className={s.card}>
+          <div className={s.cardTitle}>顧客セグメント 構成比</div>
+          <ResponsiveContainer width="100%" height={300}>
+            <PieChart>
+              <Pie data={segments.filter((seg) => seg.buyers > 0)} dataKey="buyers" nameKey="segment" cx="50%" cy="50%" outerRadius={100} innerRadius={50} labelLine={false}
+                label={({ segment, percent }) => percent > 0.01 ? `${segment} ${(percent * 100).toFixed(0)}%` : ""}>
+                {segments.map((seg, i) => <Cell key={i} fill={SEG_COLORS[seg.segment] || PALETTE[i]} />)}
+              </Pie>
+              <Tooltip />
+            </PieChart>
+          </ResponsiveContainer>
+          <div className={s.legendRow}>
+            {segments.map((seg, i) => (
+              <span key={i} className={s.legendItem}>
+                <span className={s.legendDot} style={{ background: SEG_COLORS[seg.segment] }} />{seg.segment}（{seg.definition}）
+              </span>
+            ))}
           </div>
         </div>
-      )}
+      </div>
 
-      {!loading && !error && data.length === 0 && (
-        <div className="flex h-48 items-center justify-center rounded-xl border" style={{ backgroundColor: "var(--card)", borderColor: "var(--border)" }}>
-          <span style={{ color: "var(--muted-foreground)" }}>該当するデータがありません</span>
-        </div>
-      )}
+      {/* Segment table */}
+      <div className={s.card}>
+        <div className={s.cardTitle}>セグメント別 詳細テーブル</div>
+        <table className={s.dataTable}>
+          <thead><tr>
+            <th>セグメント</th><th>定義</th><th className={s.num}>購入者数</th>
+            <th className={s.num}>構成比</th><th className={s.num}>売上金額</th><th className={s.num}>売上構成比</th>
+          </tr></thead>
+          <tbody>
+            {segments.map((d, i) => (
+              <tr key={i}>
+                <td style={{ fontWeight: 700, color: SEG_COLORS[d.segment] }}>{d.segment}</td>
+                <td>{d.definition}</td>
+                <td className={s.num}>{d.buyers.toLocaleString()}</td>
+                <td className={s.num}>{d.buyer_share}%</td>
+                <td className={s.num}>¥{formatNum(d.sales)}</td>
+                <td className={s.num}>{d.sales_share}%</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }

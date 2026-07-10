@@ -3,160 +3,235 @@ import { querySnowflake } from "@/lib/snowflake"
 import { DB } from "@/lib/constants"
 
 export const dynamic = "force-dynamic"
+export const maxDuration = 300
+
+const T_DT_STORE = `${DB}.ANALYTICS.DT_DAILY_STORE_SUMMARY`
+const T_DT_MEMBER = `${DB}.ANALYTICS.DT_MEMBER_DAILY_PURCHASE`
+const T_DT_MEMBER_ITEM = `${DB}.ANALYTICS.DT_MEMBER_ITEM_DAILY`
+const T_DT_MEMBER_CAT = `${DB}.ANALYTICS.DT_MEMBER_CATEGORY_DAILY`
+const T_MEMBERS = `${DB}.MASTER.DATAMART_COMMON_MEMBERS`
+const T_STORES = `${DB}.MASTER.DATAMART_COMMON_STORES`
+const T_ITEMS = `${DB}.MASTER.DATAMART_COMMON_ITEMS`
+
+function sanitize(s: string): string {
+  return s.replace(/'/g, "''")
+}
+function inList(codes: string[]): string {
+  return codes.map((c) => `'${sanitize(c)}'`).join(",")
+}
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
   const type = searchParams.get("type") ?? "age_gender"
-  const category = searchParams.get("category") ?? ""
-  const area = searchParams.get("area") ?? ""
   const baseStart = searchParams.get("baseStart") ?? ""
   const baseEnd = searchParams.get("baseEnd") ?? ""
-  const storeCodes = searchParams.get("storeCodes") ?? ""
-  const itemCodes = searchParams.get("itemCodes") ?? ""
+  const storeCodes = (searchParams.get("storeCodes") ?? "").split(",").filter(Boolean)
+  const mdCodes = (searchParams.get("mdCodes") ?? "").split(",").filter(Boolean)
+  const majorCodes = (searchParams.get("majorCodes") ?? "").split(",").filter(Boolean)
+  const middleCodes = (searchParams.get("middleCodes") ?? "").split(",").filter(Boolean)
 
-  const joins: string[] = []
-  const filters: string[] = []
+  const hasProductFilter = mdCodes.length > 0 || majorCodes.length > 0 || middleCodes.length > 0
 
-  // Global conditions
-  if (baseStart && baseEnd) {
-    filters.push(`t.BUSINESS_DATE BETWEEN '${baseStart.replace(/'/g, "''")}' AND '${baseEnd.replace(/'/g, "''")}'`)
-  }
-  if (storeCodes) {
-    const codes = storeCodes.split(",").map((c) => `'${c.replace(/'/g, "''")}'`).join(",")
-    filters.push(`t.STORE_CODE IN (${codes})`)
-  }
-  if (itemCodes) {
-    const codes = itemCodes.split(",").map((c) => `'${c.replace(/'/g, "''")}'`).join(",")
-    filters.push(`t.ITEM_CODE IN (${codes})`)
-  }
+  const dateFilter = baseStart && baseEnd
+    ? `d.BUSINESS_DATE BETWEEN '${sanitize(baseStart)}' AND '${sanitize(baseEnd)}'`
+    : `d.BUSINESS_DATE >= DATEADD('month', -3, CURRENT_DATE())`
 
-  if (category) {
-    joins.push(`JOIN ${DB}.MASTER.DATAMART_COMMON_ITEMS p ON t.ITEM_CODE = p.ITEM_CODE`)
-    filters.push(`p.MD_NAME = '${category.replace(/'/g, "''")}'`)
-  }
-  if (area) {
-    if (!type.includes("area")) {
-      joins.push(`JOIN ${DB}.MASTER.DATAMART_COMMON_STORES s ON t.STORE_CODE = s.STORE_CODE`)
-    }
-    filters.push(`s.AREA_NAME = '${area.replace(/'/g, "''")}'`)
-  }
+  const storeFilter = storeCodes.length > 0
+    ? `AND d.STORE_CODE IN (${inList(storeCodes)})`
+    : ""
 
-  const filterClause = filters.length > 0 ? `AND ${filters.join(" AND ")}` : ""
+  // Product filter (uses DT_MEMBER_CATEGORY_DAILY directly — no items JOIN needed)
+  const buildCatFilter = () => {
+    const parts: string[] = []
+    if (mdCodes.length > 0) parts.push(`d.MD_CODE IN (${inList(mdCodes)})`)
+    if (majorCodes.length > 0) parts.push(`d.MAJOR_CODE IN (${inList(majorCodes)})`)
+    if (middleCodes.length > 0) parts.push(`d.MIDDLE_CODE IN (${inList(middleCodes)})`)
+    return parts.length > 0 ? `AND ${parts.join(" AND ")}` : ""
+  }
 
   try {
     let rows: Record<string, unknown>[]
 
     switch (type) {
-      case "age_gender":
-        rows = await querySnowflake(`
-          WITH member_stats AS (
+      case "summary":
+        if (hasProductFilter) {
+          rows = await querySnowflake(`
             SELECT
-              m.AGE_GROUP,
-              m.GENDER,
-              m.MAJICA_NO,
-              COUNT(DISTINCT t.BUSINESS_DATE) AS purchase_days,
-              SUM(t.ITEM_SALES_AMOUNT) AS total_spend,
-              COUNT(DISTINCT t.TRADE_KEY) AS txn_count
-            FROM ${DB}.ANALYTICS.IS_POS_TRANSACTION t
-            JOIN ${DB}.MASTER.DATAMART_COMMON_MEMBERS m ON t.MAJICA_NO = m.MAJICA_NO
-            ${joins.join("\n")}
-            WHERE t.MAJICA_NO IS NOT NULL ${filterClause}
-            GROUP BY m.AGE_GROUP, m.GENDER, m.MAJICA_NO
-          )
-          SELECT
-            AGE_GROUP,
-            GENDER,
-            COUNT(*) AS buyers,
-            SUM(total_spend) AS total_sales,
-            ROUND(AVG(total_spend), 0) AS avg_spend,
-            ROUND(AVG(purchase_days), 1) AS avg_frequency,
-            SUM(CASE WHEN purchase_days >= 2 THEN 1 ELSE 0 END) AS repeaters
-          FROM member_stats
-          GROUP BY AGE_GROUP, GENDER
-          ORDER BY AGE_GROUP, GENDER
-        `)
+              COUNT(DISTINCT d.MAJICA_NO) AS active_members,
+              SUM(d.TOTAL_SALES) AS total_sales,
+              SUM(d.RECEIPT_COUNT) AS total_transactions,
+              ROUND(SUM(d.TOTAL_SALES) / NULLIF(SUM(d.RECEIPT_COUNT), 0), 0) AS avg_basket,
+              ROUND(SUM(d.TOTAL_QUANTITY) / NULLIF(SUM(d.RECEIPT_COUNT), 0), 1) AS avg_items,
+              (SELECT COUNT(*) FROM ${T_MEMBERS}) AS total_members
+            FROM ${T_DT_MEMBER_CAT} d
+            WHERE ${dateFilter} ${storeFilter} ${buildCatFilter()}
+          `)
+        } else {
+          rows = await querySnowflake(`
+            SELECT
+              SUM(d.MEMBER_COUNT) AS active_members,
+              SUM(d.TOTAL_SALES_AMOUNT) AS total_sales,
+              SUM(d.RECEIPT_COUNT) AS total_transactions,
+              ROUND(SUM(d.TOTAL_SALES_AMOUNT) / NULLIF(SUM(d.RECEIPT_COUNT), 0), 0) AS avg_basket,
+              ROUND(SUM(d.TOTAL_SALES_QUANTITY) / NULLIF(SUM(d.RECEIPT_COUNT), 0), 1) AS avg_items,
+              (SELECT COUNT(*) FROM ${T_MEMBERS}) AS total_members
+            FROM ${T_DT_STORE} d
+            WHERE ${dateFilter} ${storeFilter}
+          `)
+        }
         break
 
-      case "area": {
-        // Apply date filter to avoid full table scan; default to last 90 days
-        const areaDateFilter = baseStart && baseEnd
-          ? `t.BUSINESS_DATE BETWEEN '${baseStart.replace(/'/g, "''")}' AND '${baseEnd.replace(/'/g, "''")}'`
-          : `t.BUSINESS_DATE >= DATEADD('day', -90, CURRENT_DATE())`
+      case "age_gender":
+        if (hasProductFilter) {
+          rows = await querySnowflake(`
+            WITH member_stats AS (
+              SELECT
+                m.AGE_GROUP,
+                m.GENDER,
+                d.MAJICA_NO,
+                COUNT(DISTINCT d.BUSINESS_DATE) AS purchase_days,
+                SUM(d.TOTAL_SALES) AS total_spend,
+                SUM(d.RECEIPT_COUNT) AS txn_count
+              FROM ${T_DT_MEMBER_CAT} d
+              JOIN ${T_MEMBERS} m ON m.MAJICA_NO = d.MAJICA_NO
+              WHERE ${dateFilter} ${storeFilter} ${buildCatFilter()}
+              GROUP BY m.AGE_GROUP, m.GENDER, d.MAJICA_NO
+            )
+            SELECT
+              AGE_GROUP, GENDER,
+              COUNT(*) AS buyers,
+              SUM(total_spend) AS total_sales,
+              ROUND(AVG(total_spend), 0) AS avg_spend,
+              ROUND(AVG(purchase_days), 1) AS avg_frequency,
+              SUM(CASE WHEN purchase_days >= 2 THEN 1 ELSE 0 END) AS repeaters
+            FROM member_stats
+            GROUP BY AGE_GROUP, GENDER
+            ORDER BY AGE_GROUP, GENDER
+          `)
+        } else {
+          rows = await querySnowflake(`
+            WITH member_stats AS (
+              SELECT
+                m.AGE_GROUP,
+                m.GENDER,
+                d.MAJICA_NO,
+                COUNT(DISTINCT d.BUSINESS_DATE) AS purchase_days,
+                SUM(d.DAILY_SALES) AS total_spend,
+                SUM(d.DAILY_RECEIPTS) AS txn_count
+              FROM ${T_DT_MEMBER} d
+              JOIN ${T_MEMBERS} m ON m.MAJICA_NO = d.MAJICA_NO
+              WHERE ${dateFilter} ${storeFilter}
+              GROUP BY m.AGE_GROUP, m.GENDER, d.MAJICA_NO
+            )
+            SELECT
+              AGE_GROUP, GENDER,
+              COUNT(*) AS buyers,
+              SUM(total_spend) AS total_sales,
+              ROUND(AVG(total_spend), 0) AS avg_spend,
+              ROUND(AVG(purchase_days), 1) AS avg_frequency,
+              SUM(CASE WHEN purchase_days >= 2 THEN 1 ELSE 0 END) AS repeaters
+            FROM member_stats
+            GROUP BY AGE_GROUP, GENDER
+            ORDER BY AGE_GROUP, GENDER
+          `)
+        }
+        break
+
+      case "area":
         rows = await querySnowflake(`
           SELECT
             s.AREA_NAME,
-            s.PREFECTURE_NAME,
-            COUNT(DISTINCT t.MAJICA_NO) AS buyers,
-            SUM(t.ITEM_SALES_AMOUNT) AS total_sales,
-            COUNT(DISTINCT t.TRADE_KEY) AS transactions,
-            COUNT(DISTINCT t.STORE_CODE) AS store_count,
-            ROUND(AVG(t.ITEM_SALES_AMOUNT), 0) AS avg_spend
-          FROM ${DB}.ANALYTICS.IS_POS_TRANSACTION t
-          JOIN ${DB}.MASTER.DATAMART_COMMON_STORES s ON t.STORE_CODE = s.STORE_CODE
-          ${category ? `JOIN ${DB}.MASTER.DATAMART_COMMON_ITEMS p ON t.ITEM_CODE = p.ITEM_CODE` : ""}
-          WHERE ${areaDateFilter} ${category ? `AND p.MD_NAME = '${category.replace(/'/g, "''")}'` : ""}
-          GROUP BY s.AREA_NAME, s.PREFECTURE_NAME
+            COUNT(DISTINCT d.STORE_CODE) AS store_count,
+            SUM(d.TOTAL_SALES_AMOUNT) AS total_sales,
+            SUM(d.RECEIPT_COUNT) AS transactions,
+            SUM(d.MEMBER_COUNT) AS buyers,
+            ROUND(SUM(d.TOTAL_SALES_AMOUNT) / NULLIF(SUM(d.RECEIPT_COUNT), 0), 0) AS avg_basket
+          FROM ${T_DT_STORE} d
+          JOIN ${T_STORES} s ON s.STORE_CODE = d.STORE_CODE
+          WHERE ${dateFilter} ${storeFilter}
+          GROUP BY s.AREA_NAME
           ORDER BY total_sales DESC
         `)
-        break
-      }
         break
 
       case "behavior":
         rows = await querySnowflake(`
           SELECT
-            DAYOFWEEK(t.BUSINESS_DATE) AS day_of_week,
-            COUNT(DISTINCT t.TRADE_KEY) AS transactions,
-            SUM(t.ITEM_SALES_AMOUNT) AS total_sales,
-            COUNT(DISTINCT t.MAJICA_NO) AS buyers
-          FROM ${DB}.ANALYTICS.IS_POS_TRANSACTION t
-          ${joins.join("\n")}
-          WHERE 1=1 ${filterClause}
+            DAYOFWEEK(d.BUSINESS_DATE) AS day_of_week,
+            SUM(d.TOTAL_SALES_AMOUNT) AS total_sales,
+            SUM(d.RECEIPT_COUNT) AS transactions,
+            SUM(d.MEMBER_COUNT) AS buyers
+          FROM ${T_DT_STORE} d
+          WHERE ${dateFilter} ${storeFilter}
           GROUP BY day_of_week
           ORDER BY day_of_week
         `)
         break
 
       case "trial_repeat":
-        rows = await querySnowflake(`
-          WITH filtered_trades AS (
-            SELECT t.MAJICA_NO, t.BUSINESS_DATE
-            FROM ${DB}.ANALYTICS.IS_POS_TRANSACTION t
-            ${joins.join("\n")}
-            WHERE t.MAJICA_NO IS NOT NULL ${filterClause}
-          ),
-          member_freq AS (
-            SELECT MAJICA_NO, COUNT(DISTINCT BUSINESS_DATE) AS purchase_days
-            FROM filtered_trades GROUP BY MAJICA_NO
-          )
-          SELECT
-            CASE
-              WHEN purchase_days = 1 THEN 'トライアル (1回)'
-              WHEN purchase_days BETWEEN 2 AND 3 THEN 'ライト (2-3回)'
-              WHEN purchase_days BETWEEN 4 AND 7 THEN 'ミドル (4-7回)'
-              ELSE 'ヘビー (8回以上)'
-            END AS segment,
-            COUNT(*) AS member_count,
-            ROUND(AVG(purchase_days), 1) AS avg_frequency
-          FROM member_freq
-          GROUP BY segment
-          ORDER BY avg_frequency
-        `)
-        break
-
-      case "summary":
-        rows = await querySnowflake(`
-          SELECT
-            APPROX_COUNT_DISTINCT(t.MAJICA_NO) AS active_members,
-            SUM(t.ITEM_SALES_AMOUNT) AS total_sales,
-            COUNT(DISTINCT t.TRADE_KEY) AS total_transactions,
-            ROUND(SUM(t.ITEM_SALES_AMOUNT) / NULLIF(COUNT(DISTINCT t.TRADE_KEY), 0), 0) AS avg_basket,
-            ROUND(SUM(t.ITEM_SALES_QUANTITY) / NULLIF(COUNT(DISTINCT t.TRADE_KEY), 0), 1) AS avg_items,
-            (SELECT COUNT(DISTINCT MAJICA_NO) FROM ${DB}.MASTER.DATAMART_COMMON_MEMBERS) AS total_members
-          FROM ${DB}.ANALYTICS.IS_POS_TRANSACTION t
-          ${joins.join("\n")}
-          WHERE t.MAJICA_NO IS NOT NULL ${filterClause}
-        `)
+        if (hasProductFilter) {
+          rows = await querySnowflake(`
+            WITH member_freq AS (
+              SELECT
+                d.MAJICA_NO,
+                COUNT(DISTINCT d.BUSINESS_DATE) AS purchase_days,
+                SUM(d.TOTAL_SALES) AS total_sales
+              FROM ${T_DT_MEMBER_CAT} d
+              WHERE ${dateFilter} ${storeFilter} ${buildCatFilter()}
+              GROUP BY d.MAJICA_NO
+            )
+            SELECT
+              purchase_days AS count,
+              COUNT(*) AS buyers,
+              SUM(total_sales) AS sales,
+              ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (), 1) AS share,
+              ROUND(SUM(total_sales) * 100.0 / SUM(SUM(total_sales)) OVER (), 1) AS sales_share
+            FROM member_freq
+            WHERE purchase_days <= 10
+            GROUP BY purchase_days
+            UNION ALL
+            SELECT
+              11 AS count,
+              COUNT(*) AS buyers,
+              SUM(total_sales) AS sales,
+              ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM member_freq), 1) AS share,
+              ROUND(SUM(total_sales) * 100.0 / (SELECT SUM(total_sales) FROM member_freq), 1) AS sales_share
+            FROM member_freq
+            WHERE purchase_days > 10
+            ORDER BY count
+          `)
+        } else {
+          rows = await querySnowflake(`
+            WITH member_freq AS (
+              SELECT
+                d.MAJICA_NO,
+                COUNT(DISTINCT d.BUSINESS_DATE) AS purchase_days,
+                SUM(d.DAILY_SALES) AS total_sales
+              FROM ${T_DT_MEMBER} d
+              WHERE ${dateFilter} ${storeFilter}
+              GROUP BY d.MAJICA_NO
+            )
+            SELECT
+              purchase_days AS count,
+              COUNT(*) AS buyers,
+              SUM(total_sales) AS sales,
+              ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (), 1) AS share,
+              ROUND(SUM(total_sales) * 100.0 / SUM(SUM(total_sales)) OVER (), 1) AS sales_share
+            FROM member_freq
+            WHERE purchase_days <= 10
+            GROUP BY purchase_days
+            UNION ALL
+            SELECT
+              11 AS count,
+              COUNT(*) AS buyers,
+              SUM(total_sales) AS sales,
+              ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM member_freq), 1) AS share,
+              ROUND(SUM(total_sales) * 100.0 / (SELECT SUM(total_sales) FROM member_freq), 1) AS sales_share
+            FROM member_freq
+            WHERE purchase_days > 10
+            ORDER BY count
+          `)
+        }
         break
 
       default:
@@ -166,6 +241,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ type, data: rows })
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Unknown error"
+    console.error(new Date().toISOString(), "[api/analysis]", message)
     return NextResponse.json({ error: message }, { status: 500 })
   }
 }

@@ -1,11 +1,10 @@
 "use client"
 import * as React from "react"
-import { useRouter } from "next/navigation"
-import s from "./conditions.module.css"
+import s from "@/app/analysis/conditions/conditions.module.css"
+import { useConditions } from "@/components/conditions-context"
 import {
   defaultConditions,
   getCurrentConditions,
-  setCurrentConditions,
   saveCondition,
   getSavedConditions,
   deleteSavedCondition,
@@ -39,8 +38,13 @@ const PRODUCT_MODES = [
   { key: "jan", label: "JAN" },
 ] as const
 
-export default function ConditionsPage() {
-  const router = useRouter()
+interface ConditionsPanelProps {
+  open: boolean
+  onClose: () => void
+}
+
+export function ConditionsPanel({ open, onClose }: ConditionsPanelProps) {
+  const { setConditions } = useConditions()
   const [openSection, setOpenSection] = React.useState(1)
   const [cond, setCond] = React.useState<AnalysisConditions>(defaultConditions())
   const [stores, setStores] = React.useState<SelectorRow[]>([])
@@ -54,9 +58,14 @@ export default function ConditionsPage() {
   const [facets, setFacets] = React.useState<MemberFacets>({ genders: [], age_groups: [], ranks: [] })
   const [saved, setSaved] = React.useState<SavedCondition[]>([])
   const [saveName, setSaveName] = React.useState("")
-  const [loading, setLoading] = React.useState(true)
+  const [loading, setLoading] = React.useState(false)
+  const mastersLoaded = React.useRef(false)
 
+  // Load masters only once when panel first opens
   React.useEffect(() => {
+    if (!open || mastersLoaded.current) return
+    mastersLoaded.current = true
+    setLoading(true)
     setCond(getCurrentConditions())
     setSaved(getSavedConditions())
     Promise.all([
@@ -70,7 +79,15 @@ export default function ConditionsPage() {
         if (f && !f.error) setFacets(f)
       })
       .finally(() => setLoading(false))
-  }, [])
+  }, [open])
+
+  // Sync conditions from context when panel opens (after masters loaded)
+  React.useEffect(() => {
+    if (open && mastersLoaded.current) {
+      setCond(getCurrentConditions())
+      setSaved(getSavedConditions())
+    }
+  }, [open])
 
   const upd = (patch: Partial<AnalysisConditions>) => setCond((prev) => ({ ...prev, ...patch }))
   const updMember = (patch: Partial<AnalysisConditions["member"]>) => setCond((prev) => ({ ...prev, member: { ...prev.member, ...patch } }))
@@ -94,169 +111,188 @@ export default function ConditionsPage() {
   ].filter(Boolean).join(" / ") : "全商品"
   const memberSummary = cond.member.enabled ? `${[cond.member.genders.length && "性別", cond.member.ageGroups.length && "年代", cond.member.ranks.length && "ランク"].filter(Boolean).length || 0}条件` : "条件なし"
 
-  const runAnalysis = () => { setCurrentConditions(cond); router.push("/analysis/abc") }
+  const applyConditions = () => {
+    setConditions(cond)
+    onClose()
+  }
   const doSave = () => { if (!saveName.trim()) return; setSaved(saveCondition(saveName.trim(), cond)); setSaveName("") }
   const resetAll = () => setCond(defaultConditions())
 
-  if (loading) return <div style={{ padding: 40, textAlign: "center", color: "#94a3b8" }}>マスタ読み込み中...</div>
-
   return (
-    <main style={{ maxWidth: 1400, margin: "0 auto", padding: 24 }}>
-      {/* Step Indicator */}
-      <div className={s.stepIndicator}>
-        {STEPS.map((st, i) => {
-          const sec = i + 1
-          const isActive = openSection === sec
-          const isDone = (sec === 1 && dateOk) || (sec === 2 && storeOk) || (sec === 3 && prodOk) || (sec === 4 && cond.member.enabled) || (sec === 5 && saved.length > 0)
-          const cls = isActive ? s[`active${sec}`] : isDone && openSection !== sec ? s[`done${sec}`] : ""
-          return (
-            <React.Fragment key={st.label}>
-              <div className={s.stepGroup}>
-                <div className={`${s.stepDot} ${cls}`} onClick={() => toggle(sec)}>
-                  {isDone && !isActive ? "✓" : sec}
-                </div>
-                <span className={s.stepLabel}>{st.label}</span>
+    <>
+      {/* Backdrop */}
+      <div
+        className={`absolute inset-0 z-40 bg-black/30 backdrop-blur-[2px] transition-opacity duration-200 ${open ? "opacity-100" : "opacity-0 pointer-events-none"}`}
+        onClick={onClose}
+      />
+      {/* Panel */}
+      <div
+        className={`absolute inset-x-0 z-50 overflow-y-auto overflow-x-visible shadow-2xl transition-all duration-300 ${open ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-4 pointer-events-none"}`}
+        style={{ top: 0, maxHeight: "85vh", borderBottom: "2px solid var(--border)", borderRadius: "0 0 16px 16px", backgroundColor: "var(--card)" }}
+      >
+        {loading ? (
+          <div style={{ padding: 40, textAlign: "center", color: "#94a3b8" }}>マスタ読み込み中...</div>
+        ) : (
+          <div style={{ maxWidth: 1400, margin: "0 auto", padding: "20px 24px" }}>
+            {/* Step Indicator */}
+            <div className={s.stepIndicator}>
+              {STEPS.map((st, i) => {
+                const sec = i + 1
+                const isActive = openSection === sec
+                const isDone = (sec === 1 && dateOk) || (sec === 2 && storeOk) || (sec === 3 && prodOk) || (sec === 4 && cond.member.enabled) || (sec === 5 && saved.length > 0)
+                const cls = isActive ? s[`active${sec}`] : isDone && openSection !== sec ? s[`done${sec}`] : ""
+                return (
+                  <React.Fragment key={st.label}>
+                    <div className={s.stepGroup}>
+                      <div className={`${s.stepDot} ${cls}`} onClick={() => toggle(sec)}>
+                        {isDone && !isActive ? "✓" : sec}
+                      </div>
+                      <span className={s.stepLabel}>{st.label}</span>
+                    </div>
+                    {i < STEPS.length - 1 && (
+                      <div className={`${s.stepLine} ${isDone ? s[`done${sec}`] : ""}`} />
+                    )}
+                  </React.Fragment>
+                )
+              })}
+            </div>
+
+            <div style={{ textAlign: "right", marginBottom: 8 }}>
+              <button className={s.resetBtn} onClick={resetAll}>クリア</button>
+            </div>
+
+            {/* Section 1: 期間 */}
+            <div className={`${s.section} ${openSection === 1 ? s.activeSection1 : ""}`}>
+              <div className={s.sectionHeader} onClick={() => toggle(1)}>
+                <div className={`${s.sectionNum} ${s.num1}`}>1</div>
+                <div className={s.sectionTitle}>期間選択</div>
+                <div className={s.sectionSummary}>{dateSummary}</div>
+                <div className={`${s.sectionChevron} ${openSection === 1 ? s.open : ""}`}>▼</div>
               </div>
-              {i < STEPS.length - 1 && (
-                <div className={`${s.stepLine} ${isDone ? s[`done${sec}`] : ""}`} />
+              {openSection === 1 && (
+                <div className={s.sectionBody}>
+                  <div className={s.dateSectionBody}>
+                    <div className={s.dateRangeRow}>
+                      <span className={s.dateRangeLabel}>基準期間：</span>
+                      <input type="date" className={s.dateInput} value={cond.baseStart} onChange={(e) => upd({ baseStart: e.target.value })} />
+                      <span className={s.separator}>〜</span>
+                      <input type="date" className={s.dateInput} value={cond.baseEnd} onChange={(e) => upd({ baseEnd: e.target.value })} />
+                    </div>
+                    <div className={`${s.dateRangeRow} ${!cond.compareEnabled ? s.compDisabled : ""}`}>
+                      <span className={s.dateRangeLabel} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span className={s.toggleSwitch}>
+                          <input type="checkbox" checked={cond.compareEnabled} onChange={(e) => upd({ compareEnabled: e.target.checked, compareStart: e.target.checked ? cond.compareStart ?? "2025-08-01" : null, compareEnd: e.target.checked ? cond.compareEnd ?? "2025-10-31" : null })} />
+                          <span className={s.toggleSlider} />
+                        </span>
+                        比較期間：
+                      </span>
+                      <input type="date" className={s.dateInput} value={cond.compareStart ?? ""} onChange={(e) => upd({ compareStart: e.target.value })} />
+                      <span className={s.separator}>〜</span>
+                      <input type="date" className={s.dateInput} value={cond.compareEnd ?? ""} onChange={(e) => upd({ compareEnd: e.target.value })} />
+                    </div>
+                  </div>
+                </div>
               )}
-            </React.Fragment>
-          )
-        })}
-      </div>
-
-      <div style={{ textAlign: "right", marginBottom: 8 }}>
-        <button className={s.resetBtn} onClick={resetAll}>クリア</button>
-      </div>
-
-      {/* Section 1: 期間 */}
-      <div className={`${s.section} ${openSection === 1 ? s.activeSection1 : ""}`}>
-        <div className={s.sectionHeader} onClick={() => toggle(1)}>
-          <div className={`${s.sectionNum} ${s.num1}`}>1</div>
-          <div className={s.sectionTitle}>期間選択</div>
-          <div className={s.sectionSummary}>{dateSummary}</div>
-          <div className={`${s.sectionChevron} ${openSection === 1 ? s.open : ""}`}>▼</div>
-        </div>
-        {openSection === 1 && (
-          <div className={s.sectionBody}>
-            <div className={s.dateSectionBody}>
-              <div className={s.dateRangeRow}>
-                <span className={s.dateRangeLabel}>基準期間：</span>
-                <input type="date" className={s.dateInput} value={cond.baseStart} onChange={(e) => upd({ baseStart: e.target.value })} />
-                <span className={s.separator}>〜</span>
-                <input type="date" className={s.dateInput} value={cond.baseEnd} onChange={(e) => upd({ baseEnd: e.target.value })} />
-              </div>
-              <div className={`${s.dateRangeRow} ${!cond.compareEnabled ? s.compDisabled : ""}`}>
-                <span className={s.dateRangeLabel} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span className={s.toggleSwitch}>
-                    <input type="checkbox" checked={cond.compareEnabled} onChange={(e) => upd({ compareEnabled: e.target.checked, compareStart: e.target.checked ? cond.compareStart ?? "2025-08-01" : null, compareEnd: e.target.checked ? cond.compareEnd ?? "2025-10-31" : null })} />
-                    <span className={s.toggleSlider} />
-                  </span>
-                  比較期間：
-                </span>
-                <input type="date" className={s.dateInput} value={cond.compareStart ?? ""} onChange={(e) => upd({ compareStart: e.target.value })} />
-                <span className={s.separator}>〜</span>
-                <input type="date" className={s.dateInput} value={cond.compareEnd ?? ""} onChange={(e) => upd({ compareEnd: e.target.value })} />
-              </div>
             </div>
-          </div>
-        )}
-      </div>
 
-      {/* Section 2: 店舗 */}
-      <div className={`${s.section} ${openSection === 2 ? s.activeSection2 : ""}`}>
-        <div className={s.sectionHeader} onClick={() => toggle(2)}>
-          <div className={`${s.sectionNum} ${s.num2}`}>2</div>
-          <div className={s.sectionTitle}>店舗選択</div>
-          <div className={s.sectionSummary}>{storeSummary}</div>
-          <div className={`${s.sectionChevron} ${openSection === 2 ? s.open : ""}`}>▼</div>
-        </div>
-        {openSection === 2 && (
-          <div className={s.sectionBody}>
-            <StorePane stores={stores} selected={cond.storeCodes} onChange={(codes) => upd({ storeCodes: codes })} />
-          </div>
-        )}
-      </div>
-
-      {/* Section 3: 商品 */}
-      <div className={`${s.section} ${openSection === 3 ? s.activeSection3 : ""}`}>
-        <div className={s.sectionHeader} onClick={() => toggle(3)}>
-          <div className={`${s.sectionNum} ${s.num3}`}>3</div>
-          <div className={s.sectionTitle}>商品カテゴリ</div>
-          <div className={s.sectionSummary}>{prodSummary}</div>
-          <div className={`${s.sectionChevron} ${openSection === 3 ? s.open : ""}`}>▼</div>
-        </div>
-        {openSection === 3 && (
-          <div className={s.sectionBody}>
-            <ProductPane
-              hierarchy={hierarchy}
-              cond={cond}
-              updMdCodes={updMdCodes}
-              updMajorCodes={updMajorCodes}
-              updMiddleCodes={updMiddleCodes}
-              upd={upd}
-            />
-          </div>
-        )}
-      </div>
-
-      {/* Section 4: 会員条件 */}
-      <div className={`${s.section} ${openSection === 4 ? s.activeSection4 : ""}`}>
-        <div className={s.sectionHeader} onClick={() => toggle(4)}>
-          <div className={`${s.sectionNum} ${s.num4}`}>4</div>
-          <div className={s.sectionTitle}>会員条件設定</div>
-          <div className={s.sectionSummary}>{memberSummary}</div>
-          <div className={`${s.sectionChevron} ${openSection === 4 ? s.open : ""}`}>▼</div>
-        </div>
-        {openSection === 4 && (
-          <div className={s.sectionBody}>
-            <MemberPane facets={facets} member={cond.member} updMember={updMember} />
-          </div>
-        )}
-      </div>
-
-      {/* Section 5: 保存・確認 */}
-      <div className={`${s.section} ${openSection === 5 ? s.activeSection5 : ""}`}>
-        <div className={s.sectionHeader} onClick={() => toggle(5)}>
-          <div className={`${s.sectionNum} ${s.num5}`}>5</div>
-          <div className={s.sectionTitle}>保存・確認</div>
-          <div className={s.sectionSummary}>{saved.length}件</div>
-          <div className={`${s.sectionChevron} ${openSection === 5 ? s.open : ""}`}>▼</div>
-        </div>
-        {openSection === 5 && (
-          <div className={s.sectionBody}>
-            <div style={{ padding: "12px 16px", borderBottom: "1px solid #e2e8f0", display: "flex", gap: 8, alignItems: "center" }}>
-              <input type="text" className={s.searchInput} style={{ maxWidth: 260 }} placeholder="条件名を入力して保存" value={saveName} onChange={(e) => setSaveName(e.target.value)} />
-              <button className={s.resetBtn} style={{ background: "#4A90D9", boxShadow: "none" }} onClick={doSave} disabled={!saveName.trim()}>保存</button>
-            </div>
-            {saved.length === 0 ? (
-              <div className={s.emptyState} style={{ padding: 32 }}><span className={s.icon}>💾</span><span>保存済み条件はありません</span></div>
-            ) : saved.map((sv) => (
-              <div key={sv.id} className={s.savedItem}>
-                <div className={s.savedInfo} onClick={() => { setCond(sv.conditions); setOpenSection(1) }}>
-                  <div className={s.savedName}>{sv.name}</div>
-                  <div className={s.savedMeta}>{sv.conditions.baseStart} 〜 {sv.conditions.baseEnd} | {sv.conditions.storeCodes.length || "全"}店舗</div>
+            {/* Section 2: 店舗 */}
+            <div className={`${s.section} ${openSection === 2 ? s.activeSection2 : ""}`}>
+              <div className={s.sectionHeader} onClick={() => toggle(2)}>
+                <div className={`${s.sectionNum} ${s.num2}`}>2</div>
+                <div className={s.sectionTitle}>店舗選択</div>
+                <div className={s.sectionSummary}>{storeSummary}</div>
+                <div className={`${s.sectionChevron} ${openSection === 2 ? s.open : ""}`}>▼</div>
+              </div>
+              {openSection === 2 && (
+                <div className={s.sectionBody}>
+                  <StorePane stores={stores} selected={cond.storeCodes} onChange={(codes) => upd({ storeCodes: codes })} />
                 </div>
-                <button className={`${s.savedAction} ${s.savedLoad}`} onClick={() => { setCond(sv.conditions); setOpenSection(1) }}>↩</button>
-                <button className={`${s.savedAction} ${s.savedDel}`} onClick={() => setSaved(deleteSavedCondition(sv.id))}>×</button>
+              )}
+            </div>
+
+            {/* Section 3: 商品 */}
+            <div className={`${s.section} ${openSection === 3 ? s.activeSection3 : ""}`}>
+              <div className={s.sectionHeader} onClick={() => toggle(3)}>
+                <div className={`${s.sectionNum} ${s.num3}`}>3</div>
+                <div className={s.sectionTitle}>商品カテゴリ</div>
+                <div className={s.sectionSummary}>{prodSummary}</div>
+                <div className={`${s.sectionChevron} ${openSection === 3 ? s.open : ""}`}>▼</div>
               </div>
-            ))}
+              {openSection === 3 && (
+                <div className={s.sectionBody}>
+                  <ProductPane hierarchy={hierarchy} cond={cond} updMdCodes={updMdCodes} updMajorCodes={updMajorCodes} updMiddleCodes={updMiddleCodes} upd={upd} />
+                </div>
+              )}
+            </div>
+
+            {/* Section 4: 会員条件 */}
+            <div className={`${s.section} ${openSection === 4 ? s.activeSection4 : ""}`}>
+              <div className={s.sectionHeader} onClick={() => toggle(4)}>
+                <div className={`${s.sectionNum} ${s.num4}`}>4</div>
+                <div className={s.sectionTitle}>会員条件設定</div>
+                <div className={s.sectionSummary}>{memberSummary}</div>
+                <div className={`${s.sectionChevron} ${openSection === 4 ? s.open : ""}`}>▼</div>
+              </div>
+              {openSection === 4 && (
+                <div className={s.sectionBody}>
+                  <MemberPane facets={facets} member={cond.member} updMember={updMember} />
+                </div>
+              )}
+            </div>
+
+            {/* Section 5: 保存・確認 */}
+            <div className={`${s.section} ${openSection === 5 ? s.activeSection5 : ""}`}>
+              <div className={s.sectionHeader} onClick={() => toggle(5)}>
+                <div className={`${s.sectionNum} ${s.num5}`}>5</div>
+                <div className={s.sectionTitle}>保存・確認</div>
+                <div className={s.sectionSummary}>{saved.length}件</div>
+                <div className={`${s.sectionChevron} ${openSection === 5 ? s.open : ""}`}>▼</div>
+              </div>
+              {openSection === 5 && (
+                <div className={s.sectionBody}>
+                  <div style={{ padding: "12px 16px", borderBottom: "1px solid #e2e8f0", display: "flex", gap: 8, alignItems: "center" }}>
+                    <input type="text" className={s.searchInput} style={{ maxWidth: 260 }} placeholder="条件名を入力して保存" value={saveName} onChange={(e) => setSaveName(e.target.value)} />
+                    <button className={s.resetBtn} style={{ background: "#4A90D9", boxShadow: "none" }} onClick={doSave} disabled={!saveName.trim()}>保存</button>
+                  </div>
+                  {saved.length === 0 ? (
+                    <div className={s.emptyState} style={{ padding: 32 }}><span className={s.icon}>💾</span><span>保存済み条件はありません</span></div>
+                  ) : saved.map((sv) => (
+                    <div key={sv.id} className={s.savedItem}>
+                      <div className={s.savedInfo} onClick={() => { setCond(sv.conditions); setOpenSection(1) }}>
+                        <div className={s.savedName}>{sv.name}</div>
+                        <div className={s.savedMeta}>{sv.conditions.baseStart} 〜 {sv.conditions.baseEnd} | {sv.conditions.storeCodes.length || "全"}店舗</div>
+                      </div>
+                      <button className={`${s.savedAction} ${s.savedLoad}`} onClick={() => { setCond(sv.conditions); setOpenSection(1) }}>↩</button>
+                      <button className={`${s.savedAction} ${s.savedDel}`} onClick={() => setSaved(deleteSavedCondition(sv.id))}>×</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Apply button */}
+            <div className={s.submitArea}>
+              <div>
+                <div className={s.submitSummary}>
+                  <strong>期間：</strong>{dateSummary}　|　<strong>店舗：</strong>{storeSummary}　|　<strong>商品：</strong>{prodSummary}　|　<strong>会員：</strong>{memberSummary}
+                </div>
+                <div style={{ textAlign: "center", display: "flex", gap: 12, justifyContent: "center" }}>
+                  <button
+                    style={{ padding: "12px 32px", border: "1px solid #d0d5dd", borderRadius: 10, fontSize: 14, fontWeight: 600, cursor: "pointer", background: "#fff", color: "#475569" }}
+                    onClick={onClose}
+                  >
+                    キャンセル
+                  </button>
+                  <button className={s.submitBtn} disabled={!dateOk} onClick={applyConditions}>
+                    適用
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         )}
       </div>
-
-      {/* Submit */}
-      <div className={s.submitArea}>
-        <div>
-          <div className={s.submitSummary}>
-            <strong>期間：</strong>{dateSummary}　|　<strong>店舗：</strong>{storeSummary}　|　<strong>商品：</strong>{prodSummary}　|　<strong>会員：</strong>{memberSummary}
-          </div>
-          <div style={{ textAlign: "center" }}>
-            <button className={s.submitBtn} disabled={!dateOk} onClick={runAnalysis}>分析開始</button>
-          </div>
-        </div>
-      </div>
-    </main>
+    </>
   )
 }
 
@@ -521,7 +557,6 @@ function MemberPane({ facets, member, updMember }: { facets: MemberFacets; membe
               ))}
             </div>
           </div>
-
         </div>
       </div>
       <div className={s.memberResultBar}>

@@ -5,10 +5,60 @@
 本ドキュメントは DataCompass Pro で使用している Snowflake テーブル群のデータ概要をまとめたものです。
 
 - **データベース**: `PPIH_FULL_DB`
-- **データ期間**: 2024-07-01 〜 2026-06-30 (2年間 / 730日)
-- **対象店舗数**: 842店舗
+- **データ期間**: 2023-05-01 〜 2026-07-05 (37ヶ月 / 1,127日)
+- **対象店舗数**: 706店舗（営業中687 + 閉店19）
 - **対象会員数**: 2,000万人
-- **対象商品数**: 700万SKU
+- **対象商品数**: 694万SKU（DS 424万 + UNY 270万）
+- **POSレコード数**: 約129.6億行
+
+---
+
+## アーキテクチャ図
+
+```mermaid
+flowchart TD
+    subgraph master [Master Tables]
+        ITEMS[(DATAMART_COMMON_ITEMS\n6.9M SKU)]
+        STORES[(DATAMART_COMMON_STORES\n706 stores)]
+        MEMBERS[(DATAMART_COMMON_MEMBERS\n20M members)]
+    end
+
+    subgraph raw [Source - RAW POS]
+        FACT[(IS_POS_TRANSACTION\n12.9B rows\nCLUSTER BY DATE+MIDDLE)]
+    end
+
+    subgraph dtL1 [Dynamic Tables - L1]
+        AGG[IS_POS_TRANSACTION_AGG\n12.9B rows\nCLUSTER BY DATE+MIDDLE]
+        MEMBER_RAW[IS_POS_TRANSACTION_MEMBER\n5.8B rows\nCLUSTER BY DATE+MIDDLE]
+        DT_STORE[DT_DAILY_STORE_SUMMARY\n761K rows]
+        DT_MAJOR[DT_DAILY_MAJOR_STORE\n33M rows\nCLUSTER BY DATE+MD]
+        DT_MIDDLE[DT_DAILY_MIDDLE_STORE\n115M rows\nCLUSTER BY DATE+MIDDLE]
+        DT_MDP[DT_MEMBER_DAILY_PURCHASE\n1.09B rows\nCLUSTER BY DATE+MAJICA]
+        DT_MID[DT_MEMBER_ITEM_DAILY\n5.8B rows\nCLUSTER BY DATE+MAJICA]
+    end
+
+    subgraph dtL2 [Dynamic Tables - L2]
+        DT_MAKER[DT_AGG_DAILY_MAKER_STORE\n381M rows\nCLUSTER BY DATE+MAKER]
+        DT_MINOR[DT_AGG_DAILY_MINOR_STORE\n382M rows\nCLUSTER BY DATE+MIDDLE]
+        DT_MCAT[DT_MEMBER_CATEGORY_DAILY\n5.8B rows\nCLUSTER BY DATE+MIDDLE]
+    end
+
+    FACT --> AGG
+    FACT --> MEMBER_RAW
+    FACT --> DT_STORE
+    FACT --> DT_MAJOR
+    FACT --> DT_MIDDLE
+    FACT --> DT_MDP
+    FACT --> DT_MID
+    AGG --> DT_MAKER
+    AGG --> DT_MINOR
+    DT_MID --> DT_MCAT
+    ITEMS -.-> DT_MAJOR
+    ITEMS -.-> DT_MIDDLE
+    ITEMS -.-> DT_MAKER
+    ITEMS -.-> DT_MINOR
+    ITEMS -.-> DT_MCAT
+```
 
 ---
 
@@ -17,17 +67,13 @@
 | 項目 | 値 |
 |------|------|
 | スキーマ | `PPIH_FULL_DB.ANALYTICS` |
-| 件数 | **8,693,965,660 (約87億行)** |
-| 期間 | 2024-07-01 〜 2026-06-30 |
-| 日数 | 730日 |
-| 店舗数 | 842 |
-| 商品数 | 7,000,000 |
-| レシート数 | 約87億 (1行 = 1明細行) |
-| 会員数 (近似) | 約496万 |
-| 売上合計 (売上区分のみ) | 約29.6兆円 |
-| 売上数量合計 | 約120億個 |
-| 平均単価 | 2,473円 |
-| 1日あたり平均売上 | 約406億円 |
+| 件数 | **12,964,573,259 (約129.6億行)** |
+| 期間 | 2023-05-01 〜 2026-07-05 |
+| 日数 | 1,127日 |
+| 店舗数 | 676（営業中店舗のみ） |
+| 商品数 | 4,244,300 (DS区分のみ) |
+| majica会員紐付け率 | 45% |
+| クラスタリングキー | `LINEAR(BUSINESS_DATE, MIDDLE_CODE)` |
 
 ### カラム構成
 
@@ -35,68 +81,27 @@
 |--------|------|------|
 | BUSINESS_DATE | DATE | 営業日 |
 | STORE_CODE | VARCHAR | 店舗コード |
-| TRADE_KEY | VARCHAR | レシートキー (1取引1キー) |
+| TRADE_KEY | VARCHAR | レシートキー |
 | MAJICA_NO | VARCHAR | 会員番号 (NULL = 非会員) |
 | ITEM_CODE | VARCHAR | JANコード |
-| ITEM_SALES_QUANTITY | NUMBER | 売上数量 |
-| ITEM_SALES_AMOUNT | NUMBER | 売上金額 |
+| ITEM_SALES_QUANTITY | NUMBER | 売上数量（正規分布的ばらつき、平均~2個） |
+| ITEM_SALES_AMOUNT | NUMBER | 売上金額（商品ごと固定単価 × 数量） |
 | TRADE_CLASS_3 | VARCHAR | 取引区分 |
+| MIDDLE_CODE | VARCHAR | 中分類コード（非正規化列） |
 
-### 取引区分別 レコード分布
+### 単価設定ロジック
 
-| 取引区分 | 件数 | 割合 |
-|----------|------|------|
-| 売上 | 8,259,256,017 | 95.00% |
-| 返品 | 426,016,703 | 4.90% |
-| 値引 | 8,692,940 | 0.10% |
+商品ごとに固定単価（ITEM_CODEのHASHで決定）。MD別の価格帯：
 
-### 大分類別 レコード分布
-
-| 大分類 | 件数 | 割合 |
-|--------|------|------|
-| ホームエレクトロニクス | 1,857,126,877 | 21.36% |
-| ステーショナリー | 429,340,784 | 4.94% |
-| トイ＆バラエティ | 428,538,723 | 4.93% |
-| フード＆ドリンク | 389,362,423 | 4.48% |
-| スキンケア | 382,647,220 | 4.40% |
-| インポート | 289,761,036 | 3.33% |
-| 理美容家電 | 279,392,360 | 3.21% |
-| カーライフ | 270,521,633 | 3.11% |
-| 寝具 | 265,301,819 | 3.05% |
-| サイクル | 236,999,617 | 2.73% |
-| シューズ | 233,113,674 | 2.68% |
-| ホームグッズ | 223,583,315 | 2.57% |
-| デイリーグッズ | 223,538,754 | 2.57% |
-| ラブグッズ | 222,445,196 | 2.56% |
-| ヘルスケア | 220,490,144 | 2.54% |
-| ファッション＆カバン | 213,212,088 | 2.45% |
-| スマホパーツ | 200,151,516 | 2.30% |
-| ブランドファッション | 188,455,890 | 2.17% |
-| コスメ | 178,229,493 | 2.05% |
-| アウトドア | 174,541,143 | 2.01% |
-| ペット＆ガーデン | 171,035,825 | 1.97% |
-| パーティーグッズ | 156,886,652 | 1.80% |
-| リカー＆ワイン | 139,182,119 | 1.60% |
-| CBD | 134,691,336 | 1.55% |
-| 医薬品 | 132,215,856 | 1.52% |
-| レディス・キッズインナー | 130,493,151 | 1.50% |
-| レディスファッション雑貨 | 126,618,094 | 1.46% |
-| デイリー | 96,297,292 | 1.11% |
-| プロテイン・トレーニング | 86,359,206 | 0.99% |
-| メンズインナー | 81,333,071 | 0.94% |
-| フレッシュミート | 71,712,705 | 0.82% |
-| ギフト | 59,030,819 | 0.68% |
-| アロマ | 51,137,550 | 0.59% |
-| UNY用レディース | 46,903,954 | 0.54% |
-| UNY用靴 | 46,171,948 | 0.53% |
-| UNY用メンズ | 37,356,450 | 0.43% |
-| UNY用子供ベビー | 37,226,285 | 0.43% |
-| UNY用インナー | 37,080,090 | 0.43% |
-| デリカ | 34,934,291 | 0.40% |
-| ベジタブル・フルーツ | 32,505,046 | 0.37% |
-| フレッシュフィッシュ | 30,435,272 | 0.35% |
-| フューチャープロダクト | 28,301,666 | 0.33% |
-| 菓子・珍味 | 19,303,277 | 0.22% |
+| MD | 価格帯 |
+|----|--------|
+| 6 フード&リカー | 80〜480円 |
+| 7 フレッシュフード | 100〜700円 |
+| 3 ライフ＆ペット | 150〜950円 |
+| 5 トレンド&コスメ | 200〜3,200円 |
+| 2 ホーム&レジャー | 200〜4,200円 |
+| 4 ファッション&ブランド | 300〜5,300円 |
+| 1 デジタル&バラエティ | 500〜8,500円 |
 
 ---
 
@@ -105,52 +110,37 @@
 | 項目 | 値 |
 |------|------|
 | スキーマ | `PPIH_FULL_DB.MASTER` |
-| 件数 | **7,000,000行** |
+| 件数 | **6,944,300行** |
 | 区分カラム | `ITEM_CATEGORY_CLASS` (DS / UNY) |
 
 ### カテゴリ区分別 概要
 
-| 区分 | 説明 | 商品数 | 割合 | 大分類 | 中分類 | 小分類 | ブランド | メーカー |
-|------|------|---:|---:|---:|---:|---:|---:|---:|
-| DS | ドン・キホーテ (ディスカウント) | 4,300,000 | 61.4% | 35 | 638 | 8,279 | 5,000 | 1,500 |
-| UNY | ユニー (GMS/食品スーパー) | 2,700,000 | 38.6% | 43 | 539 | 7,000 | 5,000 | 1,500 |
-| **合計** | | **7,000,000** | **100%** | **43** | **984** | **12,770** | **10,000** | **1,500** |
+| 区分 | 商品数 | 割合 |
+|------|---:|---:|
+| DS (ドン・キホーテ) | 4,244,300 | 61.1% |
+| UNY (ユニー) | 2,700,000 | 38.9% |
+| **合計** | **6,944,300** | **100%** |
 
-### 分類体系とユニーク数 (全体)
+### DS区分 — MD (事業部) 別の階層内訳
 
-| 分類レベル | ユニーク数 |
-|------------|---:|
-| MD (事業部) | 7 |
-| 大分類 (MAJOR) | 43 |
-| 中分類 (MIDDLE) | 984 |
-| 小分類 (MINOR) | 12,770 |
-| ブランド (BRAND) | 10,000 |
-| メーカー (MAKER) | 1,500 |
-| 商品 (ITEM_CODE) | 7,000,000 |
+| MDコード | MD名 | 大分類数 | SKU数 |
+|----------|------|---------|-------|
+| 1 | デジタル&バラエティ | 7 | 610,285 |
+| 2 | ホーム&レジャー | 10 | 640,418 |
+| 3 | ライフ＆ペット | 3 | 206,347 |
+| 4 | ファッション&ブランド | 12 | 2,051,389 |
+| 5 | トレンド&コスメ | 5 | 211,135 |
+| 6 | フード&リカー | 4 | 374,443 |
+| 7 | フレッシュフード | 4 | 133,594 |
+| 8 | その他 | 11 | 7,946 |
+| 9 | コンセ | 3 | 8,743 |
 
-### MD (事業部) 別の階層内訳 — DS (ディスカウント)
+### 和洋日配（大分類02 デイリー内）
 
-| MD | 大分類数 | 中分類数 | 小分類数 | 商品数 |
-|----|---:|---:|---:|---:|
-| ホーム＆レジャー | 14 | 249 | 3,237 | 1,697,124 |
-| ファッション | 6 | 129 | 1,677 | 848,562 |
-| コスメ | 5 | 94 | 1,212 | 613,272 |
-| フード＆ドリンク | 4 | 81 | 1,048 | 529,340 |
-| デイリーグッズ | 3 | 64 | 832 | 420,992 |
-| ホームエレクトロニクス | 2 | 27 | 351 | 177,606 |
-| フレッシュミート | 1 | 2 | 26 | 13,104 |
-
-### MD (事業部) 別の階層内訳 — UNY (ユニー)
-
-| MD | 大分類数 | 中分類数 | 小分類数 | 商品数 |
-|----|---:|---:|---:|---:|
-| ホーム＆レジャー | 14 | 182 | 2,366 | 913,276 |
-| ファッション | 11 | 130 | 1,690 | 652,340 |
-| コスメ | 5 | 82 | 1,066 | 411,476 |
-| フード＆ドリンク | 4 | 50 | 650 | 249,848 |
-| デイリーグッズ | 3 | 40 | 520 | 200,720 |
-| フレッシュミート | 4 | 37 | 474 | 182,016 |
-| ホームエレクトロニクス | 2 | 18 | 234 | 90,324 |
+中分類以下をExcel実績に基づき忠実に再現：
+- **0201 洋日配**: 25,192 SKU / 26サブカテゴリ（バター、チーズ、ヨーグルト等）
+- **0202 和日配**: 35,496 SKU / 44サブカテゴリ（うどん、ラーメン、豆腐等）
+- **0299 デイリーその他**: 54,494 SKU
 
 ### 主要カラム
 
@@ -163,6 +153,7 @@
 | MAJOR_CODE / MAJOR_NAME | 大分類 |
 | MIDDLE_CODE / MIDDLE_NAME | 中分類 |
 | MINOR_CODE / MINOR_NAME | 小分類 |
+| SUB_CODE / SUB_NAME | 細分類 |
 | BRAND_CODE / BRAND_NAME | ブランド |
 | MAKER_CODE / MAKER_NAME | メーカー |
 
@@ -173,22 +164,28 @@
 | 項目 | 値 |
 |------|------|
 | スキーマ | `PPIH_FULL_DB.MASTER` |
-| 件数 | **842行** |
-| 業態数 | 6 |
-| 都道府県数 | 47 |
+| 件数 | **706行** |
 | 法人数 | 2 |
-| エリア数 | 8 |
+| 営業中 | 687 |
+| 閉店 | 19 |
+
+### 法人別 店舗数
+
+| 法人 | 合計 | 営業中 | 閉店 |
+|------|---:|---:|---:|
+| 株式会社ドン・キホーテ | 521 | 502 | 19 |
+| ユニー株式会社 | 185 | 185 | 0 |
 
 ### 業態別 店舗数
 
-| 業態 | 店舗数 |
-|------|---:|
-| ディスカウントストア | 387 |
-| MEGAドン・キホーテ | 221 |
-| アピタ(GMS) | 119 |
-| ピアゴ(食品スーパー) | 98 |
-| ピカソ(小型店) | 12 |
-| ユニー(GMS) | 5 |
+| 業態 | 店舗数 | 法人 |
+|------|---:|------|
+| ドン・キホーテ | ~301 | ドン・キホーテ |
+| MEGAドン・キホーテ | ~146 | ドン・キホーテ |
+| ドン・キホーテUNY | 62 | ユニー |
+| アピタ・ピアゴ | 123 | ユニー |
+| ロビン・フッド | 5 | ドン・キホーテ |
+| 小型業態ほか | ~39 | ドン・キホーテ |
 
 ### 主要カラム
 
@@ -201,7 +198,7 @@
 | AREA_CODE / NAME | エリア |
 | PREFECTURE_CODE / NAME | 都道府県 |
 | OPENING_DATE | 開店日 |
-| CLOSING_DATE | 閉店日 |
+| CLOSING_DATE | 閉店日 (NULLなら営業中) |
 
 ---
 
@@ -215,230 +212,83 @@
 | 年代区分 | 7 |
 | 会員ランク区分 | 6 |
 
-### 性別分布
-
-| 性別 | 人数 | 割合 |
-|------|---:|---:|
-| 男性 | 10,001,219 | 50.0% |
-| 女性 | 9,998,781 | 50.0% |
-
-### 年代分布
-
-| 年代 | 人数 | 割合 |
-|------|---:|---:|
-| 70代以上 | 5,683,972 | 28.4% |
-| 50代 | 2,780,893 | 13.9% |
-| 30代 | 2,779,826 | 13.9% |
-| 40代 | 2,779,740 | 13.9% |
-| 20代 | 2,777,782 | 13.9% |
-| 60代 | 2,776,478 | 13.9% |
-| 10代 | 421,309 | 2.1% |
-
-### 会員ランク分布
-
-| ランク | 人数 | 割合 |
-|--------|---:|---:|
-| 一般 | 7,601,335 | 38.0% |
-| ビギナー | 5,999,575 | 30.0% |
-| ブロンズ | 2,999,239 | 15.0% |
-| シルバー | 2,000,856 | 10.0% |
-| ゴールド | 998,683 | 5.0% |
-| プラチナ | 400,312 | 2.0% |
-
 ---
 
 ## 5. Dynamic Tables (事前集計テーブル)
 
-ABC分析およびトレンド表示の高速化のために、ファクトテーブルを階層別に事前集計した Dynamic Table を運用しています。全て `REFRESH_MODE = INCREMENTAL` で1時間ごとに増分更新されます。
+全DTに `CLUSTER BY` を設定し、パーティションプルーニングによる高速クエリを実現。
 
-### アーキテクチャ図
+### L1: IS_POS_TRANSACTIONから直接派生
 
-```mermaid
-flowchart LR
-    subgraph src [Source Tables]
-        FACT[(IS_POS_TRANSACTION\n8.7B rows)]
-        ITEMS[(DATAMART_COMMON_ITEMS\n7M rows)]
-        FACTAGG[(IS_POS_TRANSACTION_AGG\n7.2B rows\nitem x store x day)]
-    end
+| DT名 | 件数 | クラスタリングキー | 集計粒度 | WH |
+|-------|---:|---|---|---|
+| IS_POS_TRANSACTION_AGG | 12.9B | `LINEAR(DATE, MIDDLE)` | 日×店×商品×中分類 | 6XL |
+| IS_POS_TRANSACTION_MEMBER | 5.8B | `LINEAR(DATE, MIDDLE)` | 会員POSのみ | 6XL |
+| DT_DAILY_STORE_SUMMARY | 762K | なし | 日×店 | 6XL |
+| DT_DAILY_MAJOR_STORE | 33M | `LINEAR(DATE, MD)` | 日×店×大分類 | 6XL |
+| DT_DAILY_MIDDLE_STORE | 115M | `LINEAR(DATE, MIDDLE)` | 日×店×中分類 | 6XL |
+| DT_MEMBER_DAILY_PURCHASE | 1.09B | `LINEAR(DATE, MAJICA)` | 会員×日×店 | 6XL |
+| DT_MEMBER_ITEM_DAILY | 5.8B | `LINEAR(DATE, MAJICA)` | 会員×商品×日×店 | 6XL |
 
-    subgraph dt [Dynamic Tables - from IS_POS_TRANSACTION]
-        DT_STORE[DT_DAILY_STORE_SUMMARY\n1.8M rows / ~89MB\nDaily x Store]
-        DT_MAJOR[DT_DAILY_MAJOR_STORE\n59M rows / ~2.5GB\nDaily x Store x Major]
-        DT_MIDDLE[DT_DAILY_MIDDLE_STORE\n882M rows / ~27GB\nDaily x Store x Middle]
-    end
+### L2: DTから派生
 
-    subgraph dtAgg [Dynamic Tables - from IS_POS_TRANSACTION_AGG]
-        DT_AGG_MINOR[DT_AGG_DAILY_MINOR_STORE\n4.76B rows\nDaily x Store x Minor]
-        DT_AGG_MAKER[DT_AGG_DAILY_MAKER_STORE\n1.24B rows\nDaily x Store x Maker]
-    end
+| DT名 | 件数 | クラスタリングキー | ソース | 集計粒度 |
+|-------|---:|---|---|---|
+| DT_AGG_DAILY_MAKER_STORE | 381M | `LINEAR(DATE, MAKER)` | AGG | 日×店×メーカー |
+| DT_AGG_DAILY_MINOR_STORE | 382M | `LINEAR(DATE, MIDDLE)` | AGG | 日×店×小分類 |
+| DT_MEMBER_CATEGORY_DAILY | 5.8B | `LINEAR(DATE, MIDDLE)` | MEMBER_ITEM | 会員×日×店×中分類 |
 
-    ROUTING[Routing Logic\nlib/queries.ts]
+### DT依存ツリー
 
-    subgraph app [App API Endpoints]
-        API_TREND["/api/trend\n~1 sec"]
-        API_MD["/api/abc md/major\n~1 sec"]
-        API_MID["/api/abc middle\n~3 sec"]
-        API_MINOR["/api/abc minor\n~5-10 sec"]
-        API_MAKER["/api/abc maker\n~3-5 sec"]
-        API_ITEM["/api/abc item\n~40-45 sec"]
-        API_MEMBER["/api/abc +member\nfallback to fact"]
-    end
-
-    FACT -->|GROUP BY| DT_STORE
-    FACT -->|JOIN + GROUP BY| DT_MAJOR
-    FACT -->|JOIN + GROUP BY| DT_MIDDLE
-    FACT -->|"GROUP BY item x store x day"| FACTAGG
-    FACTAGG -->|JOIN + GROUP BY| DT_AGG_MINOR
-    FACTAGG -->|JOIN + GROUP BY| DT_AGG_MAKER
-    ITEMS -.->|JOIN| DT_MAJOR
-    ITEMS -.->|JOIN| DT_MIDDLE
-    ITEMS -.->|JOIN| DT_AGG_MINOR
-    ITEMS -.->|JOIN| DT_AGG_MAKER
-
-    DT_STORE --> ROUTING
-    DT_MAJOR --> ROUTING
-    DT_MIDDLE --> ROUTING
-    DT_AGG_MINOR --> ROUTING
-    DT_AGG_MAKER --> ROUTING
-    FACTAGG --> ROUTING
-
-    ROUTING --> API_TREND
-    ROUTING --> API_MD
-    ROUTING --> API_MID
-    ROUTING --> API_MINOR
-    ROUTING --> API_MAKER
-    ROUTING --> API_ITEM
-
-    FACT -.->|"member=ON fallback"| API_MEMBER
 ```
-
-### 一覧
-
-| DT名 | 件数 | サイズ | 期間 | 集計粒度 |
-|-------|---:|---:|---|---|
-| DT_DAILY_STORE_SUMMARY | 1,843,980 | ~89MB | 2024-07-01〜2026-06-30 | 日次 x 店舗 x 取引区分 |
-| DT_DAILY_MAJOR_STORE | 58,648,067 | ~2.5GB | 同上 | 日次 x 店舗 x 取引区分 x MD x 大分類 |
-| DT_DAILY_MIDDLE_STORE | 882,462,116 | ~27GB | 同上 | 日次 x 店舗 x 取引区分 x MD x 大分類 x 中分類 |
-| DT_MEMBER_DAILY_PURCHASE | 4,691,209,092 | ~163GB | 同上 | 会員 x 日次 x 店舗 |
-| IS_POS_TRANSACTION_AGG | 7,236,158,109 | ~65GB | 同上 | 日次 x 店舗 x 商品 x 取引区分 (会員情報なし) |
-| DT_AGG_DAILY_MINOR_STORE | 4,760,121,882 | ~130GB | 同上 | 日次 x 店舗 x 取引区分 x 小分類 |
-| DT_AGG_DAILY_MAKER_STORE | 1,243,764,530 | ~35GB | 同上 | 日次 x 店舗 x 取引区分 x メーカー |
-
-### DT_DAILY_STORE_SUMMARY
-
-```sql
-CREATE DYNAMIC TABLE PPIH_FULL_DB.ANALYTICS.DT_DAILY_STORE_SUMMARY
-  TARGET_LAG = '1 hour'
-  REFRESH_MODE = INCREMENTAL
-  WAREHOUSE = PPIH_WH_XL
-AS
-SELECT
-  t.BUSINESS_DATE,
-  t.STORE_CODE,
-  t.TRADE_CLASS_3,
-  SUM(t.ITEM_SALES_AMOUNT) AS TOTAL_SALES_AMOUNT,
-  SUM(t.ITEM_SALES_QUANTITY) AS TOTAL_SALES_QUANTITY,
-  COUNT(DISTINCT t.TRADE_KEY) AS RECEIPT_COUNT,
-  COUNT(DISTINCT t.MAJICA_NO) AS MEMBER_COUNT
-FROM PPIH_FULL_DB.ANALYTICS.IS_POS_TRANSACTION t
-GROUP BY t.BUSINESS_DATE, t.STORE_CODE, t.TRADE_CLASS_3;
+IS_POS_TRANSACTION (RAW 129.6億, CLUSTER BY DATE+MIDDLE)
+├── IS_POS_TRANSACTION_AGG (DT, lag=1day)
+│   ├── DT_AGG_DAILY_MAKER_STORE (DT, lag=1day)
+│   └── DT_AGG_DAILY_MINOR_STORE (DT, lag=1day)
+├── IS_POS_TRANSACTION_MEMBER (DT, lag=1day)
+├── DT_DAILY_STORE_SUMMARY (DT, lag=1hour)
+├── DT_DAILY_MAJOR_STORE (DT, lag=1hour)
+├── DT_DAILY_MIDDLE_STORE (DT, lag=1hour)
+├── DT_MEMBER_DAILY_PURCHASE (DT, lag=1hour)
+└── DT_MEMBER_ITEM_DAILY (DT, lag=1day)
+    └── DT_MEMBER_CATEGORY_DAILY (DT, lag=1day)
 ```
-
-**用途**: trend API、店舗軸ABC分析
-
-### DT_DAILY_MAJOR_STORE
-
-```sql
-CREATE DYNAMIC TABLE PPIH_FULL_DB.ANALYTICS.DT_DAILY_MAJOR_STORE
-  TARGET_LAG = '1 hour'
-  REFRESH_MODE = INCREMENTAL
-  WAREHOUSE = PPIH_WH_XL
-AS
-SELECT
-  t.BUSINESS_DATE,
-  t.STORE_CODE,
-  t.TRADE_CLASS_3,
-  i.MD_CODE, i.MD_NAME,
-  i.MAJOR_CODE, i.MAJOR_NAME,
-  SUM(t.ITEM_SALES_AMOUNT) AS TOTAL_SALES_AMOUNT,
-  SUM(t.ITEM_SALES_QUANTITY) AS TOTAL_SALES_QUANTITY,
-  COUNT(DISTINCT t.TRADE_KEY) AS RECEIPT_COUNT,
-  COUNT(DISTINCT t.MAJICA_NO) AS MEMBER_COUNT
-FROM PPIH_FULL_DB.ANALYTICS.IS_POS_TRANSACTION t
-JOIN PPIH_FULL_DB.MASTER.DATAMART_COMMON_ITEMS i ON i.ITEM_CODE = t.ITEM_CODE
-GROUP BY t.BUSINESS_DATE, t.STORE_CODE, t.TRADE_CLASS_3,
-         i.MD_CODE, i.MD_NAME, i.MAJOR_CODE, i.MAJOR_NAME;
-```
-
-**用途**: MD/大分類軸ABC分析 (~1秒レスポンス)
-
-### DT_DAILY_MIDDLE_STORE
-
-```sql
-CREATE DYNAMIC TABLE PPIH_FULL_DB.ANALYTICS.DT_DAILY_MIDDLE_STORE
-  TARGET_LAG = '1 hour'
-  REFRESH_MODE = INCREMENTAL
-  WAREHOUSE = PPIH_WH_XL
-AS
-SELECT
-  t.BUSINESS_DATE,
-  t.STORE_CODE,
-  t.TRADE_CLASS_3,
-  i.MD_CODE, i.MD_NAME,
-  i.MAJOR_CODE, i.MAJOR_NAME,
-  i.MIDDLE_CODE, i.MIDDLE_NAME,
-  SUM(t.ITEM_SALES_AMOUNT) AS TOTAL_SALES_AMOUNT,
-  SUM(t.ITEM_SALES_QUANTITY) AS TOTAL_SALES_QUANTITY,
-  COUNT(DISTINCT t.TRADE_KEY) AS RECEIPT_COUNT,
-  COUNT(DISTINCT t.MAJICA_NO) AS MEMBER_COUNT
-FROM PPIH_FULL_DB.ANALYTICS.IS_POS_TRANSACTION t
-JOIN PPIH_FULL_DB.MASTER.DATAMART_COMMON_ITEMS i ON i.ITEM_CODE = t.ITEM_CODE
-GROUP BY t.BUSINESS_DATE, t.STORE_CODE, t.TRADE_CLASS_3,
-         i.MD_CODE, i.MD_NAME, i.MAJOR_CODE, i.MAJOR_NAME,
-         i.MIDDLE_CODE, i.MIDDLE_NAME;
-```
-
-**用途**: 中分類軸ABC分析 (~3秒レスポンス)
-
-### DT_MEMBER_DAILY_PURCHASE
-
-```sql
-CREATE DYNAMIC TABLE PPIH_FULL_DB.ANALYTICS.DT_MEMBER_DAILY_PURCHASE
-  TARGET_LAG = '1 hour'
-  REFRESH_MODE = INCREMENTAL
-  WAREHOUSE = PPIH_WH_XL
-AS
-SELECT
-  t.MAJICA_NO,
-  t.BUSINESS_DATE,
-  t.STORE_CODE,
-  COUNT(DISTINCT t.TRADE_KEY) AS DAILY_RECEIPTS,
-  SUM(t.ITEM_SALES_AMOUNT) AS DAILY_SALES,
-  SUM(t.ITEM_SALES_QUANTITY) AS DAILY_QUANTITY
-FROM PPIH_FULL_DB.ANALYTICS.IS_POS_TRANSACTION t
-WHERE t.MAJICA_NO IS NOT NULL
-GROUP BY t.MAJICA_NO, t.BUSINESS_DATE, t.STORE_CODE;
-```
-
-**用途**: 会員プロファイリング、スイッチング分析
 
 ---
 
 ## 6. DTルーティングロジック
 
-アプリ側 (`lib/queries.ts`) では、ユーザーの分析条件に応じて最適なテーブルを自動選択します。
+アプリ側 (`lib/queries.ts`) では、ユーザーの分析条件に応じて最適なテーブルを自動選択：
 
-| 集計単位 | フィルタ条件 | 使用テーブル | 想定レスポンス |
-|----------|-------------|-------------|--------------|
-| md / major | 小分類フィルタなし | DT_DAILY_MAJOR_STORE | ~1秒 |
-| middle | 小分類フィルタなし | DT_DAILY_MIDDLE_STORE | ~3秒 |
-| store / area / business_type / corporation / prefecture | - | DT_DAILY_STORE_SUMMARY | ~1秒 |
-| minor / brand / maker / item | - | IS_POS_TRANSACTION (直接) | ~10-30秒 |
-| 任意 + 会員フィルタ | - | IS_POS_TRANSACTION (直接) | ~10-30秒 |
-| 任意 + 小分類フィルタ | - | IS_POS_TRANSACTION (直接) | ~10-30秒 |
+| 集計単位 | 使用テーブル | 想定レスポンス |
+|----------|-------------|--------------|
+| store / area / business_type | DT_DAILY_STORE_SUMMARY | ~1秒 |
+| md / major | DT_DAILY_MAJOR_STORE | ~1秒 |
+| middle | DT_DAILY_MIDDLE_STORE | ~3秒 |
+| minor | DT_AGG_DAILY_MINOR_STORE | ~5秒 |
+| maker | DT_AGG_DAILY_MAKER_STORE | ~3秒 |
+| item | IS_POS_TRANSACTION_AGG | ~10秒 |
+| 会員フィルタあり | IS_POS_TRANSACTION直接 | ~10-30秒 |
 
-**フォールバック条件** (DTを使わずファクトテーブルに直接アクセス):
-- `unit` が minor / brand / maker / item の場合
-- 小分類 (`minorCodes`) またはメーカー (`makerCodes`) でフィルタしている場合
-- 会員属性フィルタが有効な場合
-- 個別商品コード (`itemCodes`) を指定している場合
+---
+
+## 7. ウェアハウス構成
+
+| ウェアハウス | サイズ | 用途 | auto_suspend |
+|---|---|---|---|
+| PPIH_WH_6XL | 6X-Large | DT初期化・大規模処理 | 60秒 |
+| PPIH_WH_XL | 4X-Large | DT定期リフレッシュ | 120秒 |
+| DATACOMPASS_WH | Large | アプリクエリ (QAS有効) | 60秒 |
+
+---
+
+## 8. データソース
+
+本データは以下のExcel資料に基づいて生成：
+
+| シート名 | 用途 |
+|---------|------|
+| 商品マスタ件数_全体GP別 | DS商品マスタのMD/大分類/SKU数 |
+| 日別売上DM件数_和洋日配 | 和洋日配の中分類以下の構造とレコード数 |
+| journal件数_全体GP別 | POSの大分類別レコード数 |
+| 業態別店舗数（画像） | 店舗マスタの業態構成 |

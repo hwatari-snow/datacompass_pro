@@ -15,10 +15,11 @@ import {
   PanelLeftClose,
   PanelLeft,
   Target,
+  Calculator,
   ShoppingCart,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { useSidebar } from "@/components/app-shell"
+import { useSidebar, useCondPanel } from "@/components/app-shell"
 
 interface NavItem {
   href: string
@@ -60,6 +61,7 @@ const NAV_SECTIONS: NavSection[] = [
     title: "ADMIN",
     items: [
       { href: "/admin", label: "設定", icon: Settings2 },
+      { href: "/admin/cost-estimation", label: "コスト試算", icon: Calculator },
       { href: "/admin/notifications", label: "通知管理", icon: Bell },
     ],
   },
@@ -68,6 +70,7 @@ const NAV_SECTIONS: NavSection[] = [
 export function Sidebar() {
   const pathname = usePathname()
   const { collapsed, setCollapsed } = useSidebar()
+  const { setCondPanelOpen } = useCondPanel()
 
   return (
     <aside
@@ -110,8 +113,24 @@ export function Sidebar() {
                   item.href === "/"
                     ? pathname === "/"
                     : pathname.startsWith(item.href)
+                const isConditions = item.href === "/analysis/conditions"
                 return (
                   <li key={item.href}>
+                    {isConditions ? (
+                      <button
+                        onClick={() => setCondPanelOpen(true)}
+                        className={cn(
+                          "flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                          "hover:bg-[var(--sidebar-hover-bg)]",
+                          collapsed && "justify-center px-0",
+                        )}
+                        style={{ color: "var(--sidebar-fg)" }}
+                        title={collapsed ? item.label : undefined}
+                      >
+                        <item.icon className="h-4 w-4 shrink-0" />
+                        {!collapsed && <span>{item.label}</span>}
+                      </button>
+                    ) : (
                     <Link
                       href={item.href}
                       className={cn(
@@ -131,6 +150,7 @@ export function Sidebar() {
                       <item.icon className={cn("h-4 w-4 shrink-0", active && "text-[var(--sidebar-active-fg)]")} />
                       {!collapsed && <span>{item.label}</span>}
                     </Link>
+                    )}
                   </li>
                 )
               })}

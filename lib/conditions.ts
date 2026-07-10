@@ -3,6 +3,18 @@ import type { AnalysisConditions } from "@/lib/types"
 
 const CURRENT_KEY = "dc_current_conditions"
 const SAVED_KEY = "dc_saved_conditions"
+const SCHEMA_VERSION = "2026-07-09"
+const VERSION_KEY = "dc_schema_version"
+
+function clearStaleData(): void {
+  if (typeof window === "undefined") return
+  const stored = localStorage.getItem(VERSION_KEY)
+  if (stored !== SCHEMA_VERSION) {
+    localStorage.removeItem(CURRENT_KEY)
+    localStorage.removeItem(SAVED_KEY)
+    localStorage.setItem(VERSION_KEY, SCHEMA_VERSION)
+  }
+}
 
 export function defaultConditions(): AnalysisConditions {
   return {
@@ -32,6 +44,7 @@ export function defaultConditions(): AnalysisConditions {
 
 export function getCurrentConditions(): AnalysisConditions {
   if (typeof window === "undefined") return defaultConditions()
+  clearStaleData()
   try {
     const raw = localStorage.getItem(CURRENT_KEY)
     if (raw) return { ...defaultConditions(), ...JSON.parse(raw) }

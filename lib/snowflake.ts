@@ -188,7 +188,7 @@ function baseConfig(): snowflake.ConnectionOptions {
     sessionParameters: { USE_CACHED_RESULT: false },
   }
   if (process.env.SNOWFLAKE_ACCOUNT) base.account = process.env.SNOWFLAKE_ACCOUNT
-  if (process.env.SNOWFLAKE_WAREHOUSE) base.warehouse = process.env.SNOWFLAKE_WAREHOUSE
+  base.warehouse = "DATACOMPASS_WH"
   if (process.env.SNOWFLAKE_ACCOUNT_URL) base.accessUrl = process.env.SNOWFLAKE_ACCOUNT_URL
   // SNOWFLAKE_HOST is commonly injected by eval/CI frameworks
   if (!base.accessUrl && process.env.SNOWFLAKE_HOST) {
