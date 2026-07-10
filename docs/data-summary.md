@@ -29,7 +29,6 @@ flowchart TD
 
     subgraph dtL1 [Dynamic Tables - L1]
         AGG[IS_POS_TRANSACTION_AGG\n12.9B rows\nCLUSTER BY DATE+MIDDLE]
-        MEMBER_RAW[IS_POS_TRANSACTION_MEMBER\n5.8B rows\nCLUSTER BY DATE+MIDDLE]
         DT_STORE[DT_DAILY_STORE_SUMMARY\n761K rows]
         DT_MAJOR[DT_DAILY_MAJOR_STORE\n33M rows\nCLUSTER BY DATE+MD]
         DT_MIDDLE[DT_DAILY_MIDDLE_STORE\n115M rows\nCLUSTER BY DATE+MIDDLE]
@@ -44,7 +43,6 @@ flowchart TD
     end
 
     FACT --> AGG
-    FACT --> MEMBER_RAW
     FACT --> DT_STORE
     FACT --> DT_MAJOR
     FACT --> DT_MIDDLE
@@ -142,6 +140,18 @@ flowchart TD
 - **0202 和日配**: 35,496 SKU / 44サブカテゴリ（うどん、ラーメン、豆腐等）
 - **0299 デイリーその他**: 54,494 SKU
 
+#### 和洋日配 期間別レコード数検証
+
+Excel「日別売上DM件数_和洋日配」シートの期間別合計件数と完全一致：
+
+| 中分類 | 1か月 (2026-04) | 1年 (2025-07〜2026-06) | 全期間 (2023-05〜2026-07) |
+|--------|----------------:|----------------------:|-------------------------:|
+| 洋日配 | 9,318,870 | 104,060,976 | 350,079,936 |
+| 和日配 | 6,350,520 | 70,913,879 | 238,566,912 |
+| **合計** | **15,669,390** | **174,974,855** | **588,646,848** |
+
+各サブカテゴリ（小分類・細分類）のSKU数およびレコード数もExcelのJ列・K列に準拠して生成。
+
 ### 主要カラム
 
 | カラム | 説明 |
@@ -223,7 +233,6 @@ flowchart TD
 | DT名 | 件数 | クラスタリングキー | 集計粒度 | WH |
 |-------|---:|---|---|---|
 | IS_POS_TRANSACTION_AGG | 12.9B | `LINEAR(DATE, MIDDLE)` | 日×店×商品×中分類 | 6XL |
-| IS_POS_TRANSACTION_MEMBER | 5.8B | `LINEAR(DATE, MIDDLE)` | 会員POSのみ | 6XL |
 | DT_DAILY_STORE_SUMMARY | 762K | なし | 日×店 | 6XL |
 | DT_DAILY_MAJOR_STORE | 33M | `LINEAR(DATE, MD)` | 日×店×大分類 | 6XL |
 | DT_DAILY_MIDDLE_STORE | 115M | `LINEAR(DATE, MIDDLE)` | 日×店×中分類 | 6XL |
@@ -245,7 +254,6 @@ IS_POS_TRANSACTION (RAW 129.6億, CLUSTER BY DATE+MIDDLE)
 ├── IS_POS_TRANSACTION_AGG (DT, lag=1day)
 │   ├── DT_AGG_DAILY_MAKER_STORE (DT, lag=1day)
 │   └── DT_AGG_DAILY_MINOR_STORE (DT, lag=1day)
-├── IS_POS_TRANSACTION_MEMBER (DT, lag=1day)
 ├── DT_DAILY_STORE_SUMMARY (DT, lag=1hour)
 ├── DT_DAILY_MAJOR_STORE (DT, lag=1hour)
 ├── DT_DAILY_MIDDLE_STORE (DT, lag=1hour)
