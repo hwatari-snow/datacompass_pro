@@ -15,6 +15,16 @@ export async function GET(request: Request) {
   const baseEnd = searchParams.get("baseEnd") ?? ""
   const storeCodes = searchParams.get("storeCodes") ?? ""
   const itemCodes = searchParams.get("itemCodes") ?? ""
+  const mdCodesRaw = (searchParams.get("mdCodes") ?? "").split(",").filter(Boolean)
+  const majorCodesRaw = (searchParams.get("majorCodes") ?? "").split(",").filter(Boolean)
+  const middleCodesRaw = (searchParams.get("middleCodes") ?? "").split(",").filter(Boolean)
+
+  // Strip composite prefix for SQL
+  const stripPrefix = (codes: string[]) => codes.map((c) => { const i = c.indexOf("_"); return i >= 0 ? c.substring(i + 1) : c })
+  const mdCodes = stripPrefix(mdCodesRaw)
+  const majorCodes = stripPrefix(majorCodesRaw)
+  const middleCodes = stripPrefix(middleCodesRaw)
+  const hasProductFilter = mdCodes.length > 0 || majorCodes.length > 0 || middleCodes.length > 0
 
   // When no itemCodes filter, use pre-aggregated DT for much faster response
   const useDt = !itemCodes
@@ -38,7 +48,12 @@ export async function GET(request: Request) {
 
   try {
     if (useDt) {
-      // Fast path: DT_DAILY_STORE_SUMMARY (pre-aggregated, ~1.8M rows)
+      // Choose table based on product filter granularity
+      const trendTable = hasProductFilter
+        ? `${DB}.ANALYTICS.DT_DAILY_MAJOR_STORE`
+        : `${DB}.ANALYTICS.DT_DAILY_STORE_SUMMARY`
+
+      // Fast path: DT_DAILY_STORE_SUMMARY or DT_DAILY_MAJOR_STORE
       const metricExpr = {
         sales: "SUM(d.TOTAL_SALES_AMOUNT)",
         quantity: "SUM(d.TOTAL_SALES_QUANTITY)",
@@ -52,11 +67,13 @@ export async function GET(request: Request) {
       } else {
         whereConditions.push(`d.BUSINESS_DATE >= DATEADD('day', -90, CURRENT_DATE())`)
       }
-      whereConditions.push(`d.TRADE_CLASS_3 = '売上'`)
+      whereConditions.push(`d.TRADE_CLASS_3 = '10'`)
       if (storeCodes) {
         const codes = storeCodes.split(",").map((c) => `'${c.replace(/'/g, "''")}'`).join(",")
         whereConditions.push(`d.STORE_CODE IN (${codes})`)
       }
+      if (mdCodes.length > 0) whereConditions.push(`d.MD_CODE IN (${mdCodes.map(c => `'${c}'`).join(",")})`)
+      if (majorCodes.length > 0) whereConditions.push(`d.MAJOR_CODE IN (${majorCodes.map(c => `'${c}'`).join(",")})`)
       const whereClause = `WHERE ${whereConditions.join(" AND ")}`
 
       const rows = await querySnowflake(`
@@ -65,7 +82,7 @@ export async function GET(request: Request) {
           ${metricExpr} AS metric_value,
           COUNT(DISTINCT d.STORE_CODE) AS store_count,
           SUM(d.MEMBER_COUNT) AS member_count
-        FROM ${DB}.ANALYTICS.DT_DAILY_STORE_SUMMARY d
+        FROM ${trendTable} d
         ${whereClause}
         GROUP BY period
         ORDER BY period

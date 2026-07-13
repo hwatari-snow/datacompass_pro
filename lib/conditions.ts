@@ -3,7 +3,7 @@ import type { AnalysisConditions } from "@/lib/types"
 
 const CURRENT_KEY = "dc_current_conditions"
 const SAVED_KEY = "dc_saved_conditions"
-const SCHEMA_VERSION = "2026-07-09"
+const SCHEMA_VERSION = "2026-07-13"
 const VERSION_KEY = "dc_schema_version"
 
 function clearStaleData(): void {

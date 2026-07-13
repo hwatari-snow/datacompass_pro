@@ -15,6 +15,14 @@ function lit(v: string): string {
 function inList(values: string[]): string {
   return values.map(lit).join(", ")
 }
+/** Strip composite prefix (e.g. "DS_01" -> "01") for category codes */
+function rawCodes(values: string[]): string[] {
+  return values.map((v) => { const idx = v.indexOf("_"); return idx >= 0 ? v.substring(idx + 1) : v })
+}
+/** IN clause with prefix-stripped codes */
+function inListRaw(values: string[]): string {
+  return rawCodes(values).map(lit).join(", ")
+}
 /** 日付バリデーション (YYYY-MM-DD) */
 function dateLit(v: string): string {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) throw new Error(`invalid date: ${v}`)
@@ -69,11 +77,11 @@ function buildFilters(
   const parts: string[] = [`t.BUSINESS_DATE BETWEEN ${dateLit(start)} AND ${dateLit(end)}`]
   if (c.storeCodes.length > 0) parts.push(`t.STORE_CODE IN (${inList(c.storeCodes)})`)
   if (c.itemCodes.length > 0) parts.push(`t.ITEM_CODE IN (${inList(c.itemCodes)})`)
-  if (c.mdCodes && c.mdCodes.length > 0) parts.push(`i.MD_CODE IN (${inList(c.mdCodes)})`)
-  if (c.majorCodes && c.majorCodes.length > 0) parts.push(`i.MAJOR_CODE IN (${inList(c.majorCodes)})`)
-  if (c.middleCodes && c.middleCodes.length > 0) parts.push(`i.MIDDLE_CODE IN (${inList(c.middleCodes)})`)
-  if (c.minorCodes && c.minorCodes.length > 0) parts.push(`i.MINOR_CODE IN (${inList(c.minorCodes)})`)
-  if (c.makerCodes && c.makerCodes.length > 0) parts.push(`i.MAKER_CODE IN (${inList(c.makerCodes)})`)
+  if (c.mdCodes && c.mdCodes.length > 0) parts.push(`i.MD_CODE IN (${inListRaw(c.mdCodes)})`)
+  if (c.majorCodes && c.majorCodes.length > 0) parts.push(`i.MAJOR_CODE IN (${inListRaw(c.majorCodes)})`)
+  if (c.middleCodes && c.middleCodes.length > 0) parts.push(`i.MIDDLE_CODE IN (${inListRaw(c.middleCodes)})`)
+  if (c.minorCodes && c.minorCodes.length > 0) parts.push(`i.MINOR_CODE IN (${inListRaw(c.minorCodes)})`)
+  if (c.makerCodes && c.makerCodes.length > 0) parts.push(`i.MAKER_CODE IN (${inListRaw(c.makerCodes)})`)
 
   if (c.member?.enabled) {
     // 属性で会員を絞る
@@ -153,9 +161,9 @@ export function buildAbcSummarySql(args: Omit<AbcQueryArgs, "criteria">): string
     const filters: string[] = [`d.BUSINESS_DATE BETWEEN '${start}' AND '${end}'`]
     if (conditions.storeCodes.length > 0) filters.push(`d.STORE_CODE IN (${inList(conditions.storeCodes)})`)
     if (!isStoreTab) {
-      if (conditions.mdCodes?.length) filters.push(`d.MD_CODE IN (${inList(conditions.mdCodes)})`)
-      if (conditions.majorCodes?.length) filters.push(`d.MAJOR_CODE IN (${inList(conditions.majorCodes)})`)
-      if (conditions.middleCodes?.length && unit === "middle") filters.push(`d.MIDDLE_CODE IN (${inList(conditions.middleCodes)})`)
+      if (conditions.mdCodes?.length) filters.push(`d.MD_CODE IN (${inListRaw(conditions.mdCodes)})`)
+      if (conditions.majorCodes?.length) filters.push(`d.MAJOR_CODE IN (${inListRaw(conditions.majorCodes)})`)
+      if (conditions.middleCodes?.length && unit === "middle") filters.push(`d.MIDDLE_CODE IN (${inListRaw(conditions.middleCodes)})`)
     }
     const storeJoin = isStoreTab ? `JOIN ${T_STORES} s ON s.STORE_CODE = d.STORE_CODE` : ""
     return `
@@ -175,9 +183,9 @@ WHERE ${filters.join("\n  AND ")}
     const aggCodeCol = unit === "minor" ? "d.MINOR_CODE" : "d.MAKER_CODE"
     const aggFilters: string[] = [`d.BUSINESS_DATE BETWEEN '${start}' AND '${end}'`]
     if (conditions.storeCodes.length > 0) aggFilters.push(`d.STORE_CODE IN (${inList(conditions.storeCodes)})`)
-    if (conditions.mdCodes?.length) aggFilters.push(`d.MD_CODE IN (${inList(conditions.mdCodes)})`)
-    if (conditions.majorCodes?.length) aggFilters.push(`d.MAJOR_CODE IN (${inList(conditions.majorCodes)})`)
-    if (unit === "minor" && conditions.middleCodes?.length) aggFilters.push(`d.MIDDLE_CODE IN (${inList(conditions.middleCodes)})`)
+    if (conditions.mdCodes?.length) aggFilters.push(`d.MD_CODE IN (${inListRaw(conditions.mdCodes)})`)
+    if (conditions.majorCodes?.length) aggFilters.push(`d.MAJOR_CODE IN (${inListRaw(conditions.majorCodes)})`)
+    if (unit === "minor" && conditions.middleCodes?.length) aggFilters.push(`d.MIDDLE_CODE IN (${inListRaw(conditions.middleCodes)})`)
     return `
 SELECT
   SUM(d.TOTAL_SALES_AMOUNT) AS total_sales,
@@ -192,11 +200,11 @@ WHERE ${aggFilters.join("\n  AND ")}
   if (canUseAggFact) {
     const aggFilters: string[] = [`t.BUSINESS_DATE BETWEEN '${start}' AND '${end}'`]
     if (conditions.storeCodes.length > 0) aggFilters.push(`t.STORE_CODE IN (${inList(conditions.storeCodes)})`)
-    if (conditions.mdCodes?.length) aggFilters.push(`i.MD_CODE IN (${inList(conditions.mdCodes)})`)
-    if (conditions.majorCodes?.length) aggFilters.push(`i.MAJOR_CODE IN (${inList(conditions.majorCodes)})`)
-    if (conditions.middleCodes?.length) aggFilters.push(`i.MIDDLE_CODE IN (${inList(conditions.middleCodes)})`)
-    if (conditions.minorCodes?.length) aggFilters.push(`i.MINOR_CODE IN (${inList(conditions.minorCodes)})`)
-    if (conditions.makerCodes?.length) aggFilters.push(`i.MAKER_CODE IN (${inList(conditions.makerCodes)})`)
+    if (conditions.mdCodes?.length) aggFilters.push(`i.MD_CODE IN (${inListRaw(conditions.mdCodes)})`)
+    if (conditions.majorCodes?.length) aggFilters.push(`i.MAJOR_CODE IN (${inListRaw(conditions.majorCodes)})`)
+    if (conditions.middleCodes?.length) aggFilters.push(`i.MIDDLE_CODE IN (${inListRaw(conditions.middleCodes)})`)
+    if (conditions.minorCodes?.length) aggFilters.push(`i.MINOR_CODE IN (${inListRaw(conditions.minorCodes)})`)
+    if (conditions.makerCodes?.length) aggFilters.push(`i.MAKER_CODE IN (${inListRaw(conditions.makerCodes)})`)
     return `
 SELECT
   SUM(t.ITEM_SALES_AMOUNT) AS total_sales,
@@ -224,11 +232,11 @@ WHERE ${aggFilters.join("\n  AND ")}
   if (conditions.itemCodes.length > 0) filters.push(`t.ITEM_CODE IN (${inList(conditions.itemCodes)})`)
   if (needsItems) {
     if (conditions.categoryClass) filters.push(`i.ITEM_CATEGORY_CLASS = ${lit(conditions.categoryClass)}`)
-    if (conditions.mdCodes?.length) filters.push(`i.MD_CODE IN (${inList(conditions.mdCodes)})`)
-    if (conditions.majorCodes?.length) filters.push(`i.MAJOR_CODE IN (${inList(conditions.majorCodes)})`)
-    if (conditions.middleCodes?.length) filters.push(`i.MIDDLE_CODE IN (${inList(conditions.middleCodes)})`)
-    if (conditions.minorCodes?.length) filters.push(`i.MINOR_CODE IN (${inList(conditions.minorCodes)})`)
-    if (conditions.makerCodes?.length) filters.push(`i.MAKER_CODE IN (${inList(conditions.makerCodes)})`)
+    if (conditions.mdCodes?.length) filters.push(`i.MD_CODE IN (${inListRaw(conditions.mdCodes)})`)
+    if (conditions.majorCodes?.length) filters.push(`i.MAJOR_CODE IN (${inListRaw(conditions.majorCodes)})`)
+    if (conditions.middleCodes?.length) filters.push(`i.MIDDLE_CODE IN (${inListRaw(conditions.middleCodes)})`)
+    if (conditions.minorCodes?.length) filters.push(`i.MINOR_CODE IN (${inListRaw(conditions.minorCodes)})`)
+    if (conditions.makerCodes?.length) filters.push(`i.MAKER_CODE IN (${inListRaw(conditions.makerCodes)})`)
   }
   if (conditions.member?.enabled) {
     const mParts: string[] = []
@@ -329,9 +337,9 @@ function buildAbcSqlFromDt(args: AbcQueryArgs): string {
   const filters: string[] = [`d.BUSINESS_DATE BETWEEN '${start}' AND '${end}'`]
   if (conditions.storeCodes.length > 0) filters.push(`d.STORE_CODE IN (${inList(conditions.storeCodes)})`)
   if (!isStoreTab) {
-    if (conditions.mdCodes?.length) filters.push(`d.MD_CODE IN (${inList(conditions.mdCodes)})`)
-    if (conditions.majorCodes?.length) filters.push(`d.MAJOR_CODE IN (${inList(conditions.majorCodes)})`)
-    if (conditions.middleCodes?.length && unit === "middle") filters.push(`d.MIDDLE_CODE IN (${inList(conditions.middleCodes)})`)
+    if (conditions.mdCodes?.length) filters.push(`d.MD_CODE IN (${inListRaw(conditions.mdCodes)})`)
+    if (conditions.majorCodes?.length) filters.push(`d.MAJOR_CODE IN (${inListRaw(conditions.majorCodes)})`)
+    if (conditions.middleCodes?.length && unit === "middle") filters.push(`d.MIDDLE_CODE IN (${inListRaw(conditions.middleCodes)})`)
   }
   const where = filters.join("\n    AND ")
 
@@ -392,11 +400,11 @@ function buildAbcSqlFromAggDt(args: AbcQueryArgs): string {
 
   const filters: string[] = [`d.BUSINESS_DATE BETWEEN '${start}' AND '${end}'`]
   if (conditions.storeCodes.length > 0) filters.push(`d.STORE_CODE IN (${inList(conditions.storeCodes)})`)
-  if (conditions.mdCodes?.length) filters.push(`d.MD_CODE IN (${inList(conditions.mdCodes)})`)
-  if (conditions.majorCodes?.length) filters.push(`d.MAJOR_CODE IN (${inList(conditions.majorCodes)})`)
+  if (conditions.mdCodes?.length) filters.push(`d.MD_CODE IN (${inListRaw(conditions.mdCodes)})`)
+  if (conditions.majorCodes?.length) filters.push(`d.MAJOR_CODE IN (${inListRaw(conditions.majorCodes)})`)
   if (unit === "minor") {
-    if (conditions.middleCodes?.length) filters.push(`d.MIDDLE_CODE IN (${inList(conditions.middleCodes)})`)
-    if (conditions.minorCodes?.length) filters.push(`d.MINOR_CODE IN (${inList(conditions.minorCodes)})`)
+    if (conditions.middleCodes?.length) filters.push(`d.MIDDLE_CODE IN (${inListRaw(conditions.middleCodes)})`)
+    if (conditions.minorCodes?.length) filters.push(`d.MINOR_CODE IN (${inListRaw(conditions.minorCodes)})`)
   }
 
   const extraSelect = unit === "minor"
@@ -446,11 +454,11 @@ function buildAbcSqlFromAggFact(args: AbcQueryArgs): string {
   const filters: string[] = [`t.BUSINESS_DATE BETWEEN ${dateLit(start)} AND ${dateLit(end)}`]
   if (conditions.storeCodes.length > 0) filters.push(`t.STORE_CODE IN (${inList(conditions.storeCodes)})`)
   if (conditions.categoryClass) filters.push(`i.ITEM_CATEGORY_CLASS = ${lit(conditions.categoryClass)}`)
-  if (conditions.mdCodes?.length) filters.push(`i.MD_CODE IN (${inList(conditions.mdCodes)})`)
-  if (conditions.majorCodes?.length) filters.push(`i.MAJOR_CODE IN (${inList(conditions.majorCodes)})`)
-  if (conditions.middleCodes?.length) filters.push(`i.MIDDLE_CODE IN (${inList(conditions.middleCodes)})`)
-  if (conditions.minorCodes?.length) filters.push(`i.MINOR_CODE IN (${inList(conditions.minorCodes)})`)
-  if (conditions.makerCodes?.length) filters.push(`i.MAKER_CODE IN (${inList(conditions.makerCodes)})`)
+  if (conditions.mdCodes?.length) filters.push(`i.MD_CODE IN (${inListRaw(conditions.mdCodes)})`)
+  if (conditions.majorCodes?.length) filters.push(`i.MAJOR_CODE IN (${inListRaw(conditions.majorCodes)})`)
+  if (conditions.middleCodes?.length) filters.push(`i.MIDDLE_CODE IN (${inListRaw(conditions.middleCodes)})`)
+  if (conditions.minorCodes?.length) filters.push(`i.MINOR_CODE IN (${inListRaw(conditions.minorCodes)})`)
+  if (conditions.makerCodes?.length) filters.push(`i.MAKER_CODE IN (${inListRaw(conditions.makerCodes)})`)
 
   return `
 WITH agg AS (
@@ -510,11 +518,11 @@ function buildAbcSqlFromFact(args: AbcQueryArgs): string {
   if (conditions.itemCodes.length > 0) filters.push(`t.ITEM_CODE IN (${inList(conditions.itemCodes)})`)
   if (needsItems) {
     if (conditions.categoryClass) filters.push(`i.ITEM_CATEGORY_CLASS = ${lit(conditions.categoryClass)}`)
-    if (conditions.mdCodes && conditions.mdCodes.length > 0) filters.push(`i.MD_CODE IN (${inList(conditions.mdCodes)})`)
-    if (conditions.majorCodes && conditions.majorCodes.length > 0) filters.push(`i.MAJOR_CODE IN (${inList(conditions.majorCodes)})`)
-    if (conditions.middleCodes && conditions.middleCodes.length > 0) filters.push(`i.MIDDLE_CODE IN (${inList(conditions.middleCodes)})`)
-    if (conditions.minorCodes && conditions.minorCodes.length > 0) filters.push(`i.MINOR_CODE IN (${inList(conditions.minorCodes)})`)
-    if (conditions.makerCodes && conditions.makerCodes.length > 0) filters.push(`i.MAKER_CODE IN (${inList(conditions.makerCodes)})`)
+    if (conditions.mdCodes && conditions.mdCodes.length > 0) filters.push(`i.MD_CODE IN (${inListRaw(conditions.mdCodes)})`)
+    if (conditions.majorCodes && conditions.majorCodes.length > 0) filters.push(`i.MAJOR_CODE IN (${inListRaw(conditions.majorCodes)})`)
+    if (conditions.middleCodes && conditions.middleCodes.length > 0) filters.push(`i.MIDDLE_CODE IN (${inListRaw(conditions.middleCodes)})`)
+    if (conditions.minorCodes && conditions.minorCodes.length > 0) filters.push(`i.MINOR_CODE IN (${inListRaw(conditions.minorCodes)})`)
+    if (conditions.makerCodes && conditions.makerCodes.length > 0) filters.push(`i.MAKER_CODE IN (${inListRaw(conditions.makerCodes)})`)
   }
 
   // Member filter subquery

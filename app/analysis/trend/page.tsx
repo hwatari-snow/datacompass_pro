@@ -52,6 +52,9 @@ export default function TrendPage() {
     if (conditions.baseEnd) params.set("baseEnd", conditions.baseEnd)
     if (conditions.storeCodes.length) params.set("storeCodes", conditions.storeCodes.join(","))
     if (conditions.itemCodes.length) params.set("itemCodes", conditions.itemCodes.join(","))
+    if (conditions.mdCodes.length) params.set("mdCodes", conditions.mdCodes.join(","))
+    if (conditions.majorCodes.length) params.set("majorCodes", conditions.majorCodes.join(","))
+    if (conditions.middleCodes.length) params.set("middleCodes", conditions.middleCodes.join(","))
     fetch(`/api/trend?${params}`)
       .then((r) => r.json())
       .then((res) => {
@@ -60,7 +63,7 @@ export default function TrendPage() {
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false))
-  }, [granularity, metric, conditions.baseStart, conditions.baseEnd, conditions.storeCodes, conditions.itemCodes])
+  }, [granularity, metric, conditions.baseStart, conditions.baseEnd, conditions.storeCodes, conditions.itemCodes, conditions.mdCodes, conditions.majorCodes, conditions.middleCodes])
 
   // Compute KPIs
   const kpis = useMemo(() => {

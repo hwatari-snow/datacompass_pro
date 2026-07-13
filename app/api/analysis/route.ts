@@ -19,6 +19,13 @@ function sanitize(s: string): string {
 function inList(codes: string[]): string {
   return codes.map((c) => `'${sanitize(c)}'`).join(",")
 }
+/** Strip composite prefix (e.g. "DS_01" -> "01") for category codes */
+function stripPrefix(codes: string[]): string[] {
+  return codes.map((c) => { const idx = c.indexOf("_"); return idx >= 0 ? c.substring(idx + 1) : c })
+}
+function inListRaw(codes: string[]): string {
+  return stripPrefix(codes).map((c) => `'${sanitize(c)}'`).join(",")
+}
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
@@ -43,9 +50,9 @@ export async function GET(request: Request) {
   // Product filter (uses DT_MEMBER_CATEGORY_DAILY directly — no items JOIN needed)
   const buildCatFilter = () => {
     const parts: string[] = []
-    if (mdCodes.length > 0) parts.push(`d.MD_CODE IN (${inList(mdCodes)})`)
-    if (majorCodes.length > 0) parts.push(`d.MAJOR_CODE IN (${inList(majorCodes)})`)
-    if (middleCodes.length > 0) parts.push(`d.MIDDLE_CODE IN (${inList(middleCodes)})`)
+    if (mdCodes.length > 0) parts.push(`d.MD_CODE IN (${inListRaw(mdCodes)})`)
+    if (majorCodes.length > 0) parts.push(`d.MAJOR_CODE IN (${inListRaw(majorCodes)})`)
+    if (middleCodes.length > 0) parts.push(`d.MIDDLE_CODE IN (${inListRaw(middleCodes)})`)
     return parts.length > 0 ? `AND ${parts.join(" AND ")}` : ""
   }
 

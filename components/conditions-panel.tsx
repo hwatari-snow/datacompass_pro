@@ -50,11 +50,12 @@ export function ConditionsPanel({ open, onClose }: ConditionsPanelProps) {
   const [stores, setStores] = React.useState<SelectorRow[]>([])
   const [hierarchy, setHierarchy] = React.useState<{
     md: { code: string; name: string }[]
-    major: { code: string; name: string; md_code: string }[]
-    middle: { code: string; name: string; major_code: string }[]
-    minor: { code: string; name: string; middle_code: string }[]
-    makers: { code: string; name: string }[]
-  }>({ md: [], major: [], middle: [], minor: [], makers: [] })
+    major: { code: string; name: string; md_code: string; item_count: number }[]
+    middle: { code: string; name: string; major_code: string; item_count: number }[]
+    minor: { code: string; name: string; middle_code: string; item_count: number }[]
+    makers: { code: string; name: string; item_count: number }[]
+    totalItems: number
+  }>({ md: [], major: [], middle: [], minor: [], makers: [], totalItems: 0 })
   const [facets, setFacets] = React.useState<MemberFacets>({ genders: [], age_groups: [], ranks: [] })
   const [saved, setSaved] = React.useState<SavedCondition[]>([])
   const [saveName, setSaveName] = React.useState("")
@@ -75,7 +76,7 @@ export function ConditionsPanel({ open, onClose }: ConditionsPanelProps) {
     ])
       .then(([st, p, f]) => {
         if (Array.isArray(st)) setStores(st)
-        if (p && !p.error) setHierarchy(p)
+        if (p && !p.error) setHierarchy({ ...p, totalItems: p.totalItems ?? 0 })
         if (f && !f.error) setFacets(f)
       })
       .finally(() => setLoading(false))
@@ -390,24 +391,47 @@ function StorePane({ stores, selected, onChange }: { stores: SelectorRow[]; sele
 
 /* ============ Product Pane ============ */
 function ProductPane({ hierarchy, cond, updMdCodes, updMajorCodes, updMiddleCodes, upd }: {
-  hierarchy: { md: { code: string; name: string }[]; major: { code: string; name: string; md_code: string }[]; middle: { code: string; name: string; major_code: string }[]; minor: { code: string; name: string; middle_code: string }[]; makers: { code: string; name: string }[] }
+  hierarchy: { md: { code: string; name: string }[]; major: { code: string; name: string; md_code: string; item_count: number }[]; middle: { code: string; name: string; major_code: string; item_count: number }[]; minor: { code: string; name: string; middle_code: string; item_count: number }[]; makers: { code: string; name: string; item_count: number }[]; totalItems: number }
   cond: AnalysisConditions
   updMdCodes: (c: string[]) => void
   updMajorCodes: (c: string[]) => void
   updMiddleCodes: (c: string[]) => void
   upd: (p: Partial<AnalysisConditions>) => void
 }) {
-  const [mode, setMode] = React.useState<string>("major")
+  const [mode, setMode] = React.useState<string>("md")
   const [search, setSearch] = React.useState("")
 
-  const options: { code: string; name: string }[] = React.useMemo(() => {
-    let items: { code: string; name: string }[] = []
+  // Item count for bottom counter bar (debounced)
+  const [itemCount, setItemCount] = React.useState<number | null>(null)
+  const [countLoading, setCountLoading] = React.useState(false)
+  const hasSelection = cond.mdCodes.length > 0 || cond.majorCodes.length > 0 || cond.middleCodes.length > 0 || cond.minorCodes.length > 0 || cond.makerCodes.length > 0 || cond.itemCodes.length > 0
+
+  React.useEffect(() => {
+    if (!hasSelection) { setItemCount(null); return }
+    const timer = setTimeout(async () => {
+      setCountLoading(true)
+      try {
+        const res = await fetch("/api/masters/products/count", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mdCodes: cond.mdCodes, majorCodes: cond.majorCodes, middleCodes: cond.middleCodes, minorCodes: cond.minorCodes, makerCodes: cond.makerCodes, itemCodes: cond.itemCodes }),
+        })
+        const data = await res.json()
+        setItemCount(data.count ?? null)
+      } catch { setItemCount(null) }
+      setCountLoading(false)
+    }, 500)
+    return () => clearTimeout(timer)
+  }, [cond.mdCodes, cond.majorCodes, cond.middleCodes, cond.minorCodes, cond.makerCodes, cond.itemCodes, hasSelection])
+
+  const options: { code: string; name: string; item_count?: number }[] = React.useMemo(() => {
+    let items: { code: string; name: string; item_count?: number }[] = []
     switch (mode) {
       case "md": items = hierarchy.md; break
-      case "major": items = cond.mdCodes.length ? hierarchy.major.filter((m) => cond.mdCodes.includes(m.md_code)) : hierarchy.major; break
-      case "middle": items = cond.majorCodes.length ? hierarchy.middle.filter((m) => cond.majorCodes.includes(m.major_code)) : hierarchy.middle; break
-      case "minor": items = cond.middleCodes.length ? hierarchy.minor.filter((m) => cond.middleCodes.includes(m.middle_code)) : hierarchy.minor; break
-      case "maker": items = hierarchy.makers; break
+      case "major": items = (cond.mdCodes.length ? hierarchy.major.filter((m) => cond.mdCodes.includes(m.md_code)) : hierarchy.major) as typeof items; break
+      case "middle": items = (cond.majorCodes.length ? hierarchy.middle.filter((m) => cond.majorCodes.includes(m.major_code)) : hierarchy.middle) as typeof items; break
+      case "minor": items = (cond.middleCodes.length ? hierarchy.minor.filter((m) => cond.middleCodes.includes(m.middle_code)) : hierarchy.minor) as typeof items; break
+      case "maker": items = hierarchy.makers as typeof items; break
       default: items = []
     }
     if (search) { const q = search.toLowerCase(); items = items.filter((i) => i.name.toLowerCase().includes(q) || i.code.toLowerCase().includes(q)) }
@@ -434,14 +458,12 @@ function ProductPane({ hierarchy, cond, updMdCodes, updMajorCodes, updMiddleCode
             {m.label}
           </button>
         ))}
-        <div className={s.navDivider} />
-        <button className={s.paneNavBtn} style={{ color: "#dc2626", fontSize: 11 }} onClick={() => upd({ mdCodes: [], majorCodes: [], middleCodes: [], minorCodes: [], makerCodes: [], itemCodes: [] })}>選択リセット</button>
       </nav>
       <div className={s.paneMid}>
         <div className={s.panelHeader}><h3>{PRODUCT_MODES.find((m) => m.key === mode)?.label}一覧</h3><span className={s.count}>{options.length}項目</span></div>
         <div className={s.searchBar}><input className={s.searchInput} placeholder="検索..." value={search} onChange={(e) => setSearch(e.target.value)} /></div>
         {mode !== "jan" && (
-          <div className={s.actionBar}><button onClick={() => { const codes = options.map((o) => o.code); switch (mode) { case "major": updMajorCodes(codes); break; case "middle": updMiddleCodes(codes); break; case "minor": upd({ minorCodes: codes }); break; case "maker": upd({ makerCodes: codes }); break } }}>表示中を全選択</button></div>
+          <div className={s.actionBar}><button onClick={() => { const codes = options.map((o) => o.code); switch (mode) { case "md": updMdCodes(codes); break; case "major": updMajorCodes(codes); break; case "middle": updMiddleCodes(codes); break; case "minor": upd({ minorCodes: codes }); break; case "maker": upd({ makerCodes: codes }); break } }}>表示中を全選択</button></div>
         )}
         <div className={s.panelBody}>
           {mode === "jan" ? (
@@ -460,6 +482,11 @@ function ProductPane({ hierarchy, cond, updMdCodes, updMajorCodes, updMiddleCode
             return (
               <div key={item.code} className={`${s.optionRow} ${isSel ? s.selectedProduct : ""}`} onClick={() => toggleCode(item.code)}>
                 <span className={s.optLabel}>{item.name}</span>
+                {item.item_count != null && item.item_count > 0 && (
+                  <span style={{ fontSize: 10, color: "#94a3b8", marginLeft: "auto", marginRight: 6, whiteSpace: "nowrap" }}>
+                    {item.item_count.toLocaleString()}件
+                  </span>
+                )}
                 <span className={`${s.optCheck} ${s.optCheckProduct}`}>{isSel ? "✓" : ""}</span>
               </div>
             )
@@ -468,6 +495,27 @@ function ProductPane({ hierarchy, cond, updMdCodes, updMajorCodes, updMiddleCode
       </div>
       <div className={s.paneSel}>
         <div className={`${s.panelHeader} ${s.panelHeaderProduct}`}><h3>選択済み</h3><span className={s.count}>{selectedCodes.length}件</span></div>
+        {/* Item count result bar */}
+        <div className={s.memberResultBar} style={{ borderTop: "none", borderBottom: "1px solid var(--border)", paddingTop: 10, paddingBottom: 10 }}>
+          <span className={s.resultLabel}>対象商品数</span>
+          <span>
+            {!hasSelection ? (
+              <><span className={s.resultValue}>{hierarchy.totalItems.toLocaleString()}</span><span className={s.resultTotal}>件（全商品）</span></>
+            ) : countLoading ? (
+              <span className={s.resultValue} style={{ fontSize: 14 }}>集計中...</span>
+            ) : (
+              <>
+                <span className={s.resultValue}>{itemCount !== null ? itemCount.toLocaleString() : "---"}</span>
+                <span className={s.resultTotal}>/ {hierarchy.totalItems.toLocaleString()}件</span>
+                {itemCount !== null && hierarchy.totalItems > 0 && (
+                  <span style={{ fontSize: 11, color: "#29ABE2", marginLeft: 6 }}>
+                    ({Math.round(itemCount / hierarchy.totalItems * 100)}%)
+                  </span>
+                )}
+              </>
+            )}
+          </span>
+        </div>
         <div className={s.panelBody}>
           {selectedCodes.length === 0 ? (
             <div className={s.emptyState}><span className={s.icon}>🛒</span><span>カテゴリを選択してください</span></div>
