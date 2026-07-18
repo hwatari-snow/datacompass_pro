@@ -9,7 +9,7 @@
 .kpiCard.highlight { background: rgba(91, 200, 172, 0.08); border-color: rgba(91, 200, 172, 0.2); }
 .kpiLabel { font-size: 0.7rem; color: var(--muted-foreground); margin-bottom: 4px; font-weight: 500; }
 .kpiValue { font-size: 1.4rem; font-weight: 700; color: var(--foreground); }
-.kpiCard.highlight .kpiValue { color: #2A9D8F; }
+.kpiCard.highlight .kpiValue { color: #5AB4E0; }
 .kpiUnit { font-size: 0.7rem; color: var(--muted-foreground); margin-left: 2px; }
 
 /* Tab nav */

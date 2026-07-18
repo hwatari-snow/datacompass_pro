@@ -45,8 +45,8 @@ function mapRow(r: Record<string, unknown>): AbcRow {
 
 async function runPeriod(args: AbcQueryArgs): Promise<AbcResult> {
   const [rowsRaw, sumRaw] = await Promise.all([
-    querySnowflake(buildAbcSql(args)),
-    querySnowflake(buildAbcSummarySql({ conditions: args.conditions, tab: args.tab, unit: args.unit, period: args.period })),
+    querySnowflake(buildAbcSql(args), { callersRights: true }),
+    querySnowflake(buildAbcSummarySql({ conditions: args.conditions, tab: args.tab, unit: args.unit, period: args.period }), { callersRights: true }),
   ])
   const rows = rowsRaw.map(mapRow)
   const s = sumRaw[0] ?? {}

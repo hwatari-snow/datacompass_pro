@@ -10,35 +10,45 @@
 
 @layer base {
   :root {
-    /* Brand tokens */
-    --brand-primary: #3b82f6;            /* Blue-500 — main accent */
-    --brand-primary-hover: #2563eb;      /* Blue-600 */
+    /* Brand tokens — Vivid palette (base #5AB4E0 sky) */
+    --brand-primary: #5AB4E0;            /* Sky — main accent */
+    --brand-primary-hover: #2E8BC0;      /* Deeper sky */
     --brand-primary-foreground: #ffffff;
-    --brand-cyan: #22d3ee;               /* Cyan accent for KPIs */
-    --brand-green: #34d399;              /* Green accent */
-    --brand-amber: #fbbf24;             /* Amber accent */
-    --brand-pink: #f472b6;              /* Pink accent */
+    --brand-cyan: #5AB4E0;               /* KPI accent 1 — sky */
+    --brand-green: #B4E05C;              /* KPI accent 2 — lime */
+    --brand-amber: #E05CB4;              /* KPI accent 3 — pink */
+    --brand-pink: #C92693;               /* KPI accent 4 — magenta */
+
+    /* Data-viz categorical palette (mirrors lib/palette.ts CHART_COLORS) */
+    --chart-1: #5AB4E0;
+    --chart-2: #E05CB4;
+    --chart-3: #B4E05C;
+    --chart-4: #C92693;
+    --chart-5: #9CD2EC;
+    --chart-6: #2E8BC0;
+    --chart-7: #7FB800;
+    --chart-8: #EE93D2;
 
     /* Sidebar */
     --sidebar-bg: #f8fafc;              /* Light: slate-50 */
     --sidebar-fg: #334155;              /* Light: slate-700 */
-    --sidebar-active-bg: #eff6ff;       /* Light: blue-50 */
-    --sidebar-active-fg: #2563eb;       /* Light: blue-600 */
+    --sidebar-active-bg: #eaf6fc;       /* Light: sky tint */
+    --sidebar-active-fg: #2E8BC0;       /* Light: deeper sky (readable) */
     --sidebar-section-fg: #64748b;      /* Light: slate-500 */
     --sidebar-hover-bg: #f1f5f9;        /* Light: slate-100 */
     --sidebar-border: #e2e8f0;          /* Light: slate-200 */
 
-    /* ABCランク色 */
-    --abc-a: #4F7CFF;
-    --abc-b: #7C5CFC;
-    --abc-c: #E85A71;
+    /* ABCランク色 — 明確な色相（sky / lime / pink） */
+    --abc-a: #5AB4E0;
+    --abc-b: #B4E05C;
+    --abc-c: #E05CB4;
 
-    /* ウィザードステップ色 */
-    --step-1: #4A90D9;
-    --step-2: #5BC8AC;
-    --step-3: #E6D72A;
-    --step-4: #E8A87C;
-    --step-5: #9B7ED8;
+    /* ウィザードステップ色 — ビビッドスペクトラム */
+    --step-1: #5AB4E0;
+    --step-2: #B4E05C;
+    --step-3: #E05CB4;
+    --step-4: #C92693;
+    --step-5: #9CD2EC;
 
     /* shadcn/ui semantic tokens — Light mode */
     --background: #f8fafc;
@@ -118,7 +128,7 @@
     --sidebar-bg: #0a0f1e;
     --sidebar-fg: #94a3b8;
     --sidebar-active-bg: #1a2744;
-    --sidebar-active-fg: #3b82f6;
+    --sidebar-active-fg: #5AB4E0;
     --sidebar-section-fg: #64748b;
     --sidebar-hover-bg: #131c31;
     --sidebar-border: #1e293b;

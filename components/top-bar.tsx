@@ -3,17 +3,22 @@
 import { Bell, Search, Sparkles } from "lucide-react"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { useAnalystDrawer } from "@/components/analyst-drawer"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 
 interface UserInfo {
   user_name: string
   current_role: string
   account: string
+  warehouse?: string | null
+  database_name?: string | null
+  is_admin?: boolean
 }
 
 export function TopBar() {
   const [user, setUser] = useState<UserInfo | null>(null)
   const [notificationCount] = useState(3)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
   const { toggle: toggleAnalyst } = useAnalystDrawer()
 
   useEffect(() => {
@@ -22,6 +27,15 @@ export function TopBar() {
       .then((data) => setUser(data))
       .catch(() => setUser({ user_name: "User", current_role: "PUBLIC", account: "LOCAL" }))
   }, [])
+
+  useEffect(() => {
+    if (!menuOpen) return
+    const onClick = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false)
+    }
+    document.addEventListener("mousedown", onClick)
+    return () => document.removeEventListener("mousedown", onClick)
+  }, [menuOpen])
 
   const displayName = user?.user_name ?? "Loading..."
   const initials = displayName.slice(0, 2).toUpperCase()
@@ -97,14 +111,65 @@ export function TopBar() {
         {/* Theme toggle */}
         <ThemeToggle />
 
-        {/* User avatar */}
-        <button
-          className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-purple-500 text-xs font-bold text-white"
-          aria-label="User menu"
-          title={user ? `${user.user_name} (${user.current_role})` : ""}
-        >
-          {initials}
-        </button>
+        {/* User avatar + dropdown */}
+        <div className="relative" ref={menuRef}>
+          <button
+            onClick={() => setMenuOpen((v) => !v)}
+            className="flex h-8 w-8 items-center justify-center rounded-full bg-[#5AB4E0] text-xs font-bold text-white"
+            aria-label="User menu"
+            aria-expanded={menuOpen}
+          >
+            {initials}
+          </button>
+
+          {menuOpen && (
+            <div
+              className="absolute right-0 top-10 z-50 w-64 rounded-xl border p-1 shadow-lg"
+              style={{ backgroundColor: "var(--popover)", borderColor: "var(--border)", color: "var(--popover-foreground)" }}
+            >
+              <div className="flex items-center gap-3 px-3 py-3">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#5AB4E0] text-sm font-bold text-white">
+                  {initials}
+                </div>
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold" style={{ color: "var(--foreground)" }}>
+                    {displayName}
+                  </p>
+                  <p className="truncate text-xs" style={{ color: "var(--muted-foreground)" }}>
+                    ログイン中のユーザー
+                  </p>
+                </div>
+              </div>
+              <div className="my-1 h-px" style={{ backgroundColor: "var(--border)" }} />
+              <dl className="px-3 py-1 text-xs">
+                {[
+                  { k: "ユーザー", v: user?.user_name },
+                  { k: "ロール", v: user?.current_role },
+                  { k: "アカウント", v: user?.account },
+                  { k: "ウェアハウス", v: user?.warehouse ?? "—" },
+                  { k: "データベース", v: user?.database_name ?? "—" },
+                ].map((row) => (
+                  <div key={row.k} className="flex items-center justify-between gap-3 py-1">
+                    <dt style={{ color: "var(--muted-foreground)" }}>{row.k}</dt>
+                    <dd className="truncate font-medium" style={{ color: "var(--foreground)" }} title={String(row.v ?? "")}>
+                      {row.v ?? "—"}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+              {user?.is_admin && (
+                <div className="px-3 pb-2 pt-1">
+                  <span
+                    className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold"
+                    style={{ backgroundColor: "rgba(90,180,224,0.12)", color: "var(--brand-primary)" }}
+                  >
+                    管理者ロール
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </header>
   )

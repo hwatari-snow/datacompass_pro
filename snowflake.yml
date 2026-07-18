@@ -4,8 +4,8 @@ entities:
   datacompass_full:
     type: snowflake-app
     identifier:
-      name: DATACOMPASS_FULL
-      database: USER$HWATARI
+      name: DATACOMPASS_FULL_V2
+      database: SNOWFLAKE_APPS
       schema: PUBLIC
     artifacts:
       - src: ./*
@@ -26,4 +26,3 @@ entities:
       name: SYSTEM_COMPUTE_POOL_CPU
     build_eai:
       name: ALLOW_ALL_INTEGRATION
-    code_workspace: USER$HWATARI.PUBLIC.SNOWFLAKE_APPS

@@ -12,13 +12,14 @@ import {
 } from "@/lib/conditions"
 import type { AnalysisConditions, MemberFacets } from "@/lib/types"
 import type { SelectorRow } from "@/components/selector"
+import { STEP_COLORS, PALETTE } from "@/lib/palette"
 
 const STEPS = [
-  { label: "期間", color: "#4A90D9" },
-  { label: "店舗", color: "#5BC8AC" },
-  { label: "商品", color: "#E6D72A" },
-  { label: "会員条件", color: "#E8A87C" },
-  { label: "保存・確認", color: "#9B7ED8" },
+  { label: "期間", color: STEP_COLORS[0] },
+  { label: "店舗", color: STEP_COLORS[1] },
+  { label: "商品", color: STEP_COLORS[2] },
+  { label: "会員条件", color: STEP_COLORS[3] },
+  { label: "保存・確認", color: STEP_COLORS[4] },
 ]
 
 const STORE_MODES = [
@@ -113,7 +114,16 @@ export function ConditionsPanel({ open, onClose }: ConditionsPanelProps) {
   const memberSummary = cond.member.enabled ? `${[cond.member.genders.length && "性別", cond.member.ageGroups.length && "年代", cond.member.ranks.length && "ランク"].filter(Boolean).length || 0}条件` : "条件なし"
 
   const applyConditions = () => {
-    setConditions(cond)
+    const enriched = {
+      ...cond,
+      mdNames: hierarchy.md.filter((m) => cond.mdCodes.includes(m.code)).map((m) => m.name),
+      majorNames: hierarchy.major.filter((m) => cond.majorCodes.includes(m.code)).map((m) => m.name),
+      middleNames: hierarchy.middle.filter((m) => cond.middleCodes.includes(m.code)).map((m) => m.name),
+      minorNames: hierarchy.minor.filter((m) => cond.minorCodes.includes(m.code)).map((m) => m.name),
+      makerNames: hierarchy.makers.filter((m) => cond.makerCodes.includes(m.code)).map((m) => m.name),
+      storeNames: stores.filter((st) => cond.storeCodes.includes(st.code)).map((st) => st.name),
+    }
+    setConditions(enriched)
     onClose()
   }
   const doSave = () => { if (!saveName.trim()) return; setSaved(saveCondition(saveName.trim(), cond)); setSaveName("") }
@@ -253,7 +263,7 @@ export function ConditionsPanel({ open, onClose }: ConditionsPanelProps) {
                 <div className={s.sectionBody}>
                   <div style={{ padding: "12px 16px", borderBottom: "1px solid #e2e8f0", display: "flex", gap: 8, alignItems: "center" }}>
                     <input type="text" className={s.searchInput} style={{ maxWidth: 260 }} placeholder="条件名を入力して保存" value={saveName} onChange={(e) => setSaveName(e.target.value)} />
-                    <button className={s.resetBtn} style={{ background: "#4A90D9", boxShadow: "none" }} onClick={doSave} disabled={!saveName.trim()}>保存</button>
+                    <button className={s.resetBtn} style={{ background: PALETTE.primary, boxShadow: "none" }} onClick={doSave} disabled={!saveName.trim()}>保存</button>
                   </div>
                   {saved.length === 0 ? (
                     <div className={s.emptyState} style={{ padding: 32 }}><span className={s.icon}>💾</span><span>保存済み条件はありません</span></div>
@@ -508,7 +518,7 @@ function ProductPane({ hierarchy, cond, updMdCodes, updMajorCodes, updMiddleCode
                 <span className={s.resultValue}>{itemCount !== null ? itemCount.toLocaleString() : "---"}</span>
                 <span className={s.resultTotal}>/ {hierarchy.totalItems.toLocaleString()}件</span>
                 {itemCount !== null && hierarchy.totalItems > 0 && (
-                  <span style={{ fontSize: 11, color: "#29ABE2", marginLeft: 6 }}>
+                  <span style={{ fontSize: 11, color: PALETTE.primary, marginLeft: 6 }}>
                     ({Math.round(itemCount / hierarchy.totalItems * 100)}%)
                   </span>
                 )}
@@ -575,7 +585,7 @@ function MemberPane({ facets, member, updMember }: { facets: MemberFacets; membe
           <input type="checkbox" checked={member.enabled} onChange={(e) => updMember({ enabled: e.target.checked })} />
           <span className={s.toggleSlider} />
         </span>
-        <span style={{ fontSize: 13, fontWeight: 600, color: member.enabled ? "#7c5fbf" : "#94a3b8" }}>
+        <span style={{ fontSize: 13, fontWeight: 600, color: member.enabled ? PALETTE.primaryDark : "#94a3b8" }}>
           {member.enabled ? "会員条件を設定中" : "条件なし（全会員対象）"}
         </span>
       </div>

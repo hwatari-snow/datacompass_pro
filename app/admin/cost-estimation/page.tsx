@@ -5,6 +5,7 @@ import {
   AreaChart, Area, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from "recharts"
+import { CHART_COLORS, PALETTE } from "@/lib/palette"
 
 const WH_SIZES = [
   { key: "XS", label: "X-Small", credits: 1 },
@@ -26,7 +27,7 @@ const EDITIONS = [
 
 const STORAGE_PRICE_TB = 25 // $/TB/month (AWS Tokyo)
 
-const PIE_COLORS = ["#29ABE2", "#059669", "#d97706", "#7c3aed", "#dc2626", "#ec4899"]
+const PIE_COLORS = CHART_COLORS
 
 interface HourlyRow { HOUR: number; MINUTE: string; AVG_QUERIES: number; MAX_QUERIES: number }
 interface DailyRow { DAY: string; TOTAL_QUERIES: number; PEAK_QUERIES: number; ACTIVE_INTERVALS: number }
@@ -175,7 +176,7 @@ export default function CostEstimationPage() {
     <main className="w-full max-w-7xl mx-auto py-8 px-4">
       <div className="flex items-center justify-between mb-1">
         <h1 className="text-xl font-semibold">Snowflake コスト試算</h1>
-        <span className="text-xs px-2 py-1 rounded-full" style={{ backgroundColor: "rgba(41,171,226,0.1)", color: "#29ABE2" }}>AWS Tokyo (ap-northeast-1)</span>
+        <span className="text-xs px-2 py-1 rounded-full" style={{ backgroundColor: "rgba(65,105,225,0.1)", color: PALETTE.primary }}>AWS Tokyo (ap-northeast-1)</span>
       </div>
       <p className="text-sm mb-6" style={{ color: "var(--muted-foreground)" }}>
         Redshift Serverless 2026年5月のクエリパターンを元に、マルチクラスター・スケールアウトを考慮したコスト試算
@@ -215,7 +216,7 @@ export default function CostEstimationPage() {
             <YAxis tick={{ fill: "var(--muted-foreground)", fontSize: 10 }} />
             <Tooltip contentStyle={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 }} labelStyle={{ color: "var(--foreground)" }} />
             <Legend />
-            <Area type="monotone" dataKey="avg" name="平均クエリ数" stroke="#29ABE2" fill="rgba(41,171,226,0.2)" strokeWidth={2} />
+            <Area type="monotone" dataKey="avg" name="平均クエリ数" stroke={PALETTE.primary} fill="rgba(65,105,225,0.2)" strokeWidth={2} />
             <Area type="monotone" dataKey="max" name="最大クエリ数" stroke="#dc2626" fill="rgba(220,38,38,0.05)" strokeWidth={1} strokeDasharray="4 4" />
             <Area type="monotone" dataKey="capacity" name="1WH処理能力 (Y)" stroke="#d97706" fill="none" strokeWidth={2} strokeDasharray="6 3" />
           </AreaChart>
@@ -297,7 +298,7 @@ export default function CostEstimationPage() {
 
           {/* AI Section */}
           <div className="pt-3 border-t" style={{ borderColor: "var(--border)" }}>
-            <h4 className="text-xs font-semibold mb-3" style={{ color: "#7c3aed" }}>Cortex AI 利用</h4>
+            <h4 className="text-xs font-semibold mb-3" style={{ color: PALETTE.primaryDark }}>Cortex AI 利用</h4>
             <div className="space-y-3">
               <div>
                 <label className="text-xs font-medium" style={{ color: "var(--muted-foreground)" }}>
@@ -332,7 +333,7 @@ export default function CostEstimationPage() {
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 <div className="rounded-xl border p-4" style={{ backgroundColor: "var(--card)", borderColor: "var(--border)" }}>
                   <p className="text-xs" style={{ color: "var(--muted-foreground)" }}>月額合計</p>
-                  <p className="text-2xl font-bold mt-1" style={{ color: "#29ABE2" }}>${costCalc.totalMonth.toLocaleString()}</p>
+                  <p className="text-2xl font-bold mt-1" style={{ color: PALETTE.primary }}>${costCalc.totalMonth.toLocaleString()}</p>
                   <p className="text-xs mt-1" style={{ color: "var(--muted-foreground)" }}>約¥{(costCalc.totalMonth * 150).toLocaleString()}</p>
                 </div>
                 <div className="rounded-xl border p-4" style={{ backgroundColor: "var(--card)", borderColor: "var(--border)" }}>
@@ -398,7 +399,7 @@ export default function CostEstimationPage() {
                       ))}
                       <tr>
                         <td className="py-2 font-bold text-sm" style={{ color: "var(--foreground)" }}>合計</td>
-                        <td className="text-right py-2 font-bold tabular-nums text-sm" style={{ color: "#29ABE2" }}>${costCalc.totalMonth.toLocaleString()}</td>
+                        <td className="text-right py-2 font-bold tabular-nums text-sm" style={{ color: PALETTE.primary }}>${costCalc.totalMonth.toLocaleString()}</td>
                         <td className="text-right py-2 font-bold tabular-nums text-xs" style={{ color: "var(--foreground)" }}>100%</td>
                       </tr>
                     </tbody>

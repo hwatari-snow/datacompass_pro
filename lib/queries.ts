@@ -143,11 +143,8 @@ export function buildAbcSummarySql(args: Omit<AbcQueryArgs, "criteria">): string
 
   if (canUseExistingDt) {
     const isStoreTab = tab === "store"
-    const dtTable = isStoreTab
-      ? T_DT_STORE
-      : unit === "middle"
-        ? T_DT_MIDDLE
-        : T_DT_MAJOR
+    const hasMiddleFilter = !!(conditions.middleCodes?.length)
+    const dtTable = T_DT_MIDDLE  // Always use RAP-protected middle-store DT
     const DT_PRODUCT_UNIT_COLS: Record<string, string> = {
       md: "d.MD_CODE", major: "d.MAJOR_CODE", middle: "d.MIDDLE_CODE",
     }
@@ -163,7 +160,7 @@ export function buildAbcSummarySql(args: Omit<AbcQueryArgs, "criteria">): string
     if (!isStoreTab) {
       if (conditions.mdCodes?.length) filters.push(`d.MD_CODE IN (${inListRaw(conditions.mdCodes)})`)
       if (conditions.majorCodes?.length) filters.push(`d.MAJOR_CODE IN (${inListRaw(conditions.majorCodes)})`)
-      if (conditions.middleCodes?.length && unit === "middle") filters.push(`d.MIDDLE_CODE IN (${inListRaw(conditions.middleCodes)})`)
+      if (conditions.middleCodes?.length) filters.push(`d.MIDDLE_CODE IN (${inListRaw(conditions.middleCodes)})`)
     }
     const storeJoin = isStoreTab ? `JOIN ${T_STORES} s ON s.STORE_CODE = d.STORE_CODE` : ""
     return `
@@ -326,12 +323,11 @@ function buildAbcSqlFromDt(args: AbcQueryArgs): string {
     ? DT_STORE_UNIT_COLS[unit] ?? DT_STORE_UNIT_COLS["store"]
     : DT_PRODUCT_UNIT_COLS[unit] ?? DT_PRODUCT_UNIT_COLS["md"]
 
-  // Select DT based on tab and unit: store tab uses store DT, product tab picks by granularity
-  const dtTable = isStoreTab
-    ? T_DT_STORE
-    : unit === "middle"
-      ? T_DT_MIDDLE
-      : T_DT_MAJOR
+  // Select DT based on tab, unit, AND active filters:
+  // If middleCodes filter is active, we MUST use the middle DT (even for md/major unit)
+  // because only it has MIDDLE_CODE to filter on.
+  const hasMiddleFilter = !!(conditions.middleCodes?.length)
+  const dtTable = T_DT_MIDDLE  // Always use RAP-protected middle-store DT
 
   // Build WHERE filters for DT
   const filters: string[] = [`d.BUSINESS_DATE BETWEEN '${start}' AND '${end}'`]
@@ -339,7 +335,7 @@ function buildAbcSqlFromDt(args: AbcQueryArgs): string {
   if (!isStoreTab) {
     if (conditions.mdCodes?.length) filters.push(`d.MD_CODE IN (${inListRaw(conditions.mdCodes)})`)
     if (conditions.majorCodes?.length) filters.push(`d.MAJOR_CODE IN (${inListRaw(conditions.majorCodes)})`)
-    if (conditions.middleCodes?.length && unit === "middle") filters.push(`d.MIDDLE_CODE IN (${inListRaw(conditions.middleCodes)})`)
+    if (conditions.middleCodes?.length) filters.push(`d.MIDDLE_CODE IN (${inListRaw(conditions.middleCodes)})`)
   }
   const where = filters.join("\n    AND ")
 

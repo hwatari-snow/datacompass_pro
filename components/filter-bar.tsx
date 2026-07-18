@@ -9,19 +9,29 @@ interface FilterBarProps {
 }
 
 export function FilterBar({ onTogglePanel, panelOpen }: FilterBarProps) {
-  const { conditions, updateConditions } = useConditions()
+  const { conditions } = useConditions()
 
   const storeLabel = conditions.storeCodes.length
-    ? `${conditions.storeCodes.length}店舗`
+    ? conditions.storeCodes.length <= 3 && conditions.storeNames?.length
+      ? conditions.storeNames.join(", ")
+      : `${conditions.storeCodes.length}店舗`
     : "全店舗"
 
   const itemLabel = (() => {
     const parts: string[] = []
-    if (conditions.mdCodes?.length) parts.push(`MD:${conditions.mdCodes.length}`)
-    if (conditions.majorCodes?.length) parts.push(`大:${conditions.majorCodes.length}`)
-    if (conditions.middleCodes?.length) parts.push(`中:${conditions.middleCodes.length}`)
-    if (conditions.minorCodes?.length) parts.push(`小:${conditions.minorCodes.length}`)
-    if (conditions.makerCodes?.length) parts.push(`メーカー:${conditions.makerCodes.length}`)
+    const fmt = (codes: string[] | undefined, names: string[] | undefined, prefix: string) => {
+      if (!codes?.length) return
+      if (codes.length <= 3 && names?.length) {
+        parts.push(`${prefix}: ${names.join(", ")}`)
+      } else {
+        parts.push(`${prefix}:${codes.length}`)
+      }
+    }
+    fmt(conditions.mdCodes, conditions.mdNames, "MD")
+    fmt(conditions.majorCodes, conditions.majorNames, "大")
+    fmt(conditions.middleCodes, conditions.middleNames, "中")
+    fmt(conditions.minorCodes, conditions.minorNames, "小")
+    fmt(conditions.makerCodes, conditions.makerNames, "メーカー")
     if (conditions.itemCodes?.length) parts.push(`${conditions.itemCodes.length}商品`)
     return parts.length ? parts.join(" ") : "全商品"
   })()
@@ -36,34 +46,18 @@ export function FilterBar({ onTogglePanel, panelOpen }: FilterBarProps) {
         borderColor: "var(--border)",
       }}
     >
-      {/* Period */}
+      {/* Period (display-only — edit via 詳細条件 panel) */}
       <div className="flex items-center gap-1.5">
         <span style={{ color: "var(--muted-foreground)" }}>
           <Calendar className="h-3.5 w-3.5" />
         </span>
-        <input
-          type="date"
-          value={conditions.baseStart}
-          onChange={(e) => updateConditions({ baseStart: e.target.value })}
-          className="rounded border px-2 py-1 text-xs outline-none"
-          style={{
-            backgroundColor: "var(--background)",
-            borderColor: "var(--border)",
-            color: "var(--foreground)",
-          }}
-        />
+        <span className="rounded border px-2 py-1 text-xs" style={{ backgroundColor: "var(--background)", borderColor: "var(--border)", color: "var(--foreground)" }}>
+          {conditions.baseStart}
+        </span>
         <span style={{ color: "var(--muted-foreground)" }}>〜</span>
-        <input
-          type="date"
-          value={conditions.baseEnd}
-          onChange={(e) => updateConditions({ baseEnd: e.target.value })}
-          className="rounded border px-2 py-1 text-xs outline-none"
-          style={{
-            backgroundColor: "var(--background)",
-            borderColor: "var(--border)",
-            color: "var(--foreground)",
-          }}
-        />
+        <span className="rounded border px-2 py-1 text-xs" style={{ backgroundColor: "var(--background)", borderColor: "var(--border)", color: "var(--foreground)" }}>
+          {conditions.baseEnd}
+        </span>
       </div>
 
       <div className="h-4 w-px" style={{ backgroundColor: "var(--border)" }} />

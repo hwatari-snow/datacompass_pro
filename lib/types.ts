@@ -57,6 +57,12 @@ export interface AnalysisConditions {
   middleCodes: string[]   // 中分類コードで絞り込み
   minorCodes: string[]    // 小分類コードで絞り込み
   makerCodes: string[]    // メーカーコードで絞り込み
+  mdNames?: string[]
+  majorNames?: string[]
+  middleNames?: string[]
+  minorNames?: string[]
+  makerNames?: string[]
+  storeNames?: string[]
   member: MemberCondition
 }
 

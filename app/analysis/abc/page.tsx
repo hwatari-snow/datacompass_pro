@@ -20,8 +20,7 @@ import { cn } from "@/lib/utils"
 import { yen, num, pct, compact, delta } from "@/lib/format"
 import { useConditions } from "@/components/conditions-context"
 import type { AbcResult, AbcRow, AbcCriteria, ProductUnit, StoreUnit } from "@/lib/types"
-
-const ABC_COLORS: Record<string, string> = { A: "#4F7CFF", B: "#7C5CFC", C: "#E85A71" }
+import { ABC_COLORS, PALETTE } from "@/lib/palette"
 
 const PRODUCT_UNITS: { key: ProductUnit; label: string }[] = [
   { key: "item", label: "商品" },
@@ -46,7 +45,7 @@ const CRITERIA: { key: AbcCriteria; label: string }[] = [
 ]
 
 function Toggle<T extends string>({ options, value, onChange, variant = "blue" }: { options: { key: T; label: string }[]; value: T; onChange: (v: T) => void; variant?: "blue" | "red" }) {
-  const activeStyle = variant === "red" ? { background: "#E85A71", borderColor: "#E85A71", color: "#fff" } : { background: "#4F7CFF", borderColor: "#4F7CFF", color: "#fff" }
+  const activeStyle = variant === "red" ? { background: PALETTE.accent, borderColor: PALETTE.accent, color: "#fff" } : { background: PALETTE.primary, borderColor: PALETTE.primary, color: "#fff" }
   return (
     <div className="inline-flex rounded-md border overflow-hidden">
       {options.map((o) => (
@@ -67,7 +66,7 @@ function Toggle<T extends string>({ options, value, onChange, variant = "blue" }
 function Kpi({ label, value, prev, fmt }: { label: string; value: number; prev?: number; fmt: (n: number) => string }) {
   const d = prev != null ? delta(value, prev) : null
   return (
-    <Card style={{ borderColor: "#c7d7fe" }}>
+    <Card style={{ borderColor: PALETTE.primaryLight }}>
       <CardContent className="pt-5">
         <p className="text-xs text-muted-foreground">{label}</p>
         <p className="text-2xl font-bold mt-1">{fmt(value)}</p>
@@ -82,7 +81,7 @@ function Kpi({ label, value, prev, fmt }: { label: string; value: number; prev?:
 }
 
 export default function AbcPage() {
-  const { conditions } = useConditions()
+  const { conditions, version } = useConditions()
   const [tab, setTab] = React.useState<"product" | "store">("product")
   const [productUnit, setProductUnit] = React.useState<ProductUnit>("item")
   const [storeUnit, setStoreUnit] = React.useState<StoreUnit>("store")
@@ -109,18 +108,19 @@ export default function AbcPage() {
       let json: Record<string, unknown>
       try { json = JSON.parse(text) } catch { throw new Error(`サーバーエラー (${res.status}): ${text.slice(0, 120)}`) }
       if (!res.ok) throw new Error((json.error as string) ?? "集計に失敗しました")
-      setData(json)
+      setData(json as typeof data)
     } catch (e) {
       setError(e instanceof Error ? e.message : "集計に失敗しました")
       setData(null)
     } finally {
       setLoading(false)
     }
-  }, [conditions, tab, unit, criteria])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [version, tab, unit, criteria])
 
   React.useEffect(() => {
-    fetchData()
-  }, [conditions, tab, unit, criteria, fetchData])
+    if (version > 0) fetchData()
+  }, [version, tab, unit, criteria, fetchData])
 
   const rows = data?.base.rows ?? []
   const summary = data?.base.summary
@@ -178,7 +178,16 @@ export default function AbcPage() {
           {conditions.compareEnabled && ` / 比較 ${conditions.compareStart}〜${conditions.compareEnd}`}
           {" / "}
           {conditions.storeCodes.length ? `${conditions.storeCodes.length}店舗` : "全店舗"}・
-          {conditions.itemCodes.length ? `${conditions.itemCodes.length}商品` : "全商品"}
+          {(() => {
+            const parts: string[] = []
+            if (conditions.mdCodes?.length) parts.push(`MD${conditions.mdCodes.length}`)
+            if (conditions.majorCodes?.length) parts.push(`大分類${conditions.majorCodes.length}`)
+            if (conditions.middleCodes?.length) parts.push(`中分類${conditions.middleCodes.length}`)
+            if (conditions.minorCodes?.length) parts.push(`小分類${conditions.minorCodes.length}`)
+            if (conditions.makerCodes?.length) parts.push(`メーカー${conditions.makerCodes.length}`)
+            if (conditions.itemCodes?.length) parts.push(`JAN${conditions.itemCodes.length}`)
+            return parts.length ? parts.join("/") : "全商品"
+          })()}
           {conditions.member.enabled && " / 会員条件あり"}
         </p>
       )}
@@ -253,7 +262,7 @@ export default function AbcPage() {
                       <Cell key={i} fill={ABC_COLORS[d.abc_class]} />
                     ))}
                   </Bar>
-                  <Line yAxisId="right" type="monotone" dataKey="cumulative" name="累積%" stroke="#1e3a5f" strokeWidth={2} dot={false} />
+                  <Line yAxisId="right" type="monotone" dataKey="cumulative" name="累積%" stroke={PALETTE.primaryDark} strokeWidth={2} dot={false} />
                 </ComposedChart>
               </ResponsiveContainer>
             </CardContent>

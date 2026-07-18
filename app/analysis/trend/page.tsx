@@ -1,17 +1,88 @@
 "use client"
+// Separate chart components
+function TrendChart({ chartData, groupBy, seriesNames, metricConfig }: { chartData: Record<string, number | string>[]; groupBy: GroupBy; seriesNames: string[]; metricConfig: typeof METRIC_OPTIONS[number] }) {
+  // Compute Y domain
+  const values: number[] = []
+  for (const row of chartData) {
+    if (groupBy === "total") {
+      const v = Number(row.v) || 0
+      if (v > 0) values.push(v)
+    } else {
+      for (let i = 0; i < seriesNames.length; i++) {
+        const v = Number(row[`s${i}`]) || 0
+        if (v > 0) values.push(v)
+      }
+    }
+  }
 
+  let yMin = values.length > 0 ? Math.min(...values) : 0
+  let yMax = values.length > 0 ? Math.max(...values) : 100
+  const range = yMax - yMin
+  const pad = range > 0 ? range * 0.1 : yMax * 0.02
+  const domain: [number, number] = [Math.max(0, Math.floor(yMin - pad)), Math.ceil(yMax + pad)]
+
+  return (
+    <ResponsiveContainer width="100%" height={360}>
+      <LineChart data={chartData} margin={{ top: 10, right: 20, left: 20, bottom: 5 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+        <XAxis dataKey="PERIOD" tick={{ fill: "var(--muted-foreground)", fontSize: 10 }} />
+        <YAxis domain={domain} tick={{ fill: "var(--muted-foreground)", fontSize: 10 }} tickFormatter={fmtAxis} width={65} />
+        <Tooltip
+          contentStyle={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", borderRadius: 8 }}
+          labelStyle={{ color: "var(--foreground)" }}
+          formatter={(value: number, name: string) => {
+            const label = groupBy === "total" ? metricConfig.label : name
+            return [metricConfig.format(value), label]
+          }}
+        />
+        {groupBy === "total" ? (
+          <Line type="monotone" dataKey="v" name={metricConfig.label} stroke={PALETTE.primary} strokeWidth={2} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} />
+        ) : (
+          <>
+            <Legend wrapperStyle={{ fontSize: 11 }} />
+            {seriesNames.map((name, i) => (
+              <Line key={i} type="monotone" dataKey={`s${i}`} name={name} stroke={SERIES_COLORS[i % SERIES_COLORS.length]} strokeWidth={2} dot={false} connectNulls isAnimationActive={false} />
+            ))}
+          </>
+        )}
+      </LineChart>
+    </ResponsiveContainer>
+  )
+}
+
+function ComparisonChart({ data, metricConfig }: { data: { period: string; base: number; compare: number; diff: number }[]; metricConfig: typeof METRIC_OPTIONS[number] }) {
+  return (
+    <ResponsiveContainer width="100%" height={360}>
+      <LineChart data={data} margin={{ top: 10, right: 20, left: 20, bottom: 5 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+        <XAxis dataKey="period" tick={{ fill: "var(--muted-foreground)", fontSize: 10 }} />
+        <YAxis tick={{ fill: "var(--muted-foreground)", fontSize: 10 }} tickFormatter={fmtAxis} />
+        <Tooltip
+          contentStyle={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", borderRadius: 8 }}
+          labelStyle={{ color: "var(--foreground)" }}
+          formatter={(value: number, name: string) => [metricConfig.format(value), name]}
+        />
+        <Legend />
+        <Line type="monotone" dataKey="base" name="基準期間" stroke={PALETTE.primary} strokeWidth={2} dot={false} isAnimationActive={false} />
+        <Line type="monotone" dataKey="compare" name="比較期間" stroke={SEMANTIC.emphasis} strokeWidth={2} dot={false} isAnimationActive={false} />
+      </LineChart>
+    </ResponsiveContainer>
+  )
+}
 import { useState, useEffect, useMemo } from "react"
 import {
-  ComposedChart, Line, Bar, Area,
+  LineChart, Line, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
-  ResponsiveContainer, ReferenceLine,
+  ResponsiveContainer,
 } from "recharts"
 import { Download } from "lucide-react"
 import { useConditions } from "@/components/conditions-context"
+import { CHART_COLORS, PALETTE, SEMANTIC } from "@/lib/palette"
 
 type TabType = "trend" | "comparison"
 type Granularity = "monthly" | "weekly" | "daily"
 type Metric = "sales" | "quantity" | "receipts" | "unit_price"
+type GroupBy = "total" | "md" | "major" | "middle" | "minor" | "item"
 
 const GRANULARITY_OPTIONS: { id: Granularity; label: string }[] = [
   { id: "monthly", label: "月次" },
@@ -26,11 +97,30 @@ const METRIC_OPTIONS: { id: Metric; label: string; format: (v: number) => string
   { id: "unit_price", label: "平均単価", format: (v) => `¥${Math.round(v).toLocaleString()}` },
 ]
 
+const GROUPBY_OPTIONS: { id: GroupBy; label: string }[] = [
+  { id: "total", label: "全体" },
+  { id: "md", label: "MD別" },
+  { id: "major", label: "大分類別" },
+  { id: "middle", label: "中分類別" },
+  { id: "minor", label: "小分類別" },
+  { id: "item", label: "商品別" },
+]
+
+const SERIES_COLORS = CHART_COLORS
+
 interface TrendRow {
   PERIOD: string
+  SERIES_NAME?: string
   METRIC_VALUE: number
   STORE_COUNT: number
   MEMBER_COUNT: number
+}
+
+function fmtAxis(v: number): string {
+  if (v >= 1_000_000_000) return `${(v / 1_000_000_000).toFixed(1)}B`
+  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`
+  if (v >= 1_000) return `${(v / 1_000).toFixed(0)}K`
+  return String(v)
 }
 
 export default function TrendPage() {
@@ -38,6 +128,7 @@ export default function TrendPage() {
   const [activeTab, setActiveTab] = useState<TabType>("trend")
   const [granularity, setGranularity] = useState<Granularity>("monthly")
   const [metric, setMetric] = useState<Metric>("sales")
+  const [groupBy, setGroupBy] = useState<GroupBy>("total")
   const [data, setData] = useState<TrendRow[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
@@ -47,7 +138,7 @@ export default function TrendPage() {
   useEffect(() => {
     setLoading(true)
     setError("")
-    const params = new URLSearchParams({ granularity, metric })
+    const params = new URLSearchParams({ granularity, metric, groupBy })
     if (conditions.baseStart) params.set("baseStart", conditions.baseStart)
     if (conditions.baseEnd) params.set("baseEnd", conditions.baseEnd)
     if (conditions.storeCodes.length) params.set("storeCodes", conditions.storeCodes.join(","))
@@ -59,20 +150,50 @@ export default function TrendPage() {
       .then((r) => r.json())
       .then((res) => {
         if (res.error) setError(res.error)
-        else setData(res.data ?? [])
+        else setData((res.data ?? []).map((r: Record<string, unknown>) => ({ PERIOD: String(r.PERIOD ?? ''), SERIES_NAME: r.SERIES_NAME ? String(r.SERIES_NAME) : undefined, METRIC_VALUE: Number(r.METRIC_VALUE) || 0, STORE_COUNT: Number(r.STORE_COUNT) || 0, MEMBER_COUNT: Number(r.MEMBER_COUNT) || 0 })))
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false))
-  }, [granularity, metric, conditions.baseStart, conditions.baseEnd, conditions.storeCodes, conditions.itemCodes, conditions.mdCodes, conditions.majorCodes, conditions.middleCodes])
+  }, [granularity, metric, groupBy, conditions.baseStart, conditions.baseEnd, conditions.storeCodes, conditions.itemCodes, conditions.mdCodes, conditions.majorCodes, conditions.middleCodes])
 
-  // Compute KPIs
+  // Series names for multi-line mode
+  const seriesNames = useMemo(() => {
+    if (groupBy === "total") return []
+    const names: string[] = []
+    for (const d of data) {
+      if (d.SERIES_NAME && !names.includes(d.SERIES_NAME)) names.push(d.SERIES_NAME)
+    }
+    return names.slice(0, 15)
+  }, [data, groupBy])
+
+  // Pivot data for multi-series chart using safe keys (s0, s1, s2...)
+  const chartData = useMemo(() => {
+    if (groupBy === "total") return data.map((d) => ({ PERIOD: d.PERIOD, v: d.METRIC_VALUE }))
+    const periods = [...new Set(data.map((d) => d.PERIOD))].sort()
+    return periods.map((period) => {
+      const row: Record<string, number | string> = { PERIOD: period }
+      seriesNames.forEach((name, i) => {
+        const match = data.find((d) => d.PERIOD === period && d.SERIES_NAME === name)
+        row[`s${i}`] = match?.METRIC_VALUE ?? 0
+      })
+      return row
+    })
+  }, [data, groupBy, seriesNames])
+
+  // KPIs (always based on totals)
   const kpis = useMemo(() => {
     if (data.length === 0) return null
-    const values = data.map((d) => d.METRIC_VALUE)
+    // Aggregate by period for total
+    const periodMap = new Map<string, number>()
+    for (const d of data) {
+      periodMap.set(d.PERIOD, (periodMap.get(d.PERIOD) ?? 0) + d.METRIC_VALUE)
+    }
+    const periods = [...periodMap.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+    const values = periods.map(([, v]) => v)
     const total = values.reduce((s, v) => s + v, 0)
     const maxIdx = values.indexOf(Math.max(...values))
     const minIdx = values.indexOf(Math.min(...values))
-    const mid = Math.floor(data.length / 2)
+    const mid = Math.floor(periods.length / 2)
     const baseTotal = values.slice(mid).reduce((s, v) => s + v, 0)
     const compareTotal = values.slice(0, mid).reduce((s, v) => s + v, 0)
     const yoyChange = compareTotal > 0 ? ((baseTotal - compareTotal) / compareTotal) * 100 : 0
@@ -81,15 +202,16 @@ export default function TrendPage() {
       total,
       yoyChange,
       compareTotal,
-      maxPeriod: data[maxIdx]?.PERIOD ?? "",
+      maxPeriod: periods[maxIdx]?.[0] ?? "",
       maxValue: values[maxIdx] ?? 0,
-      minPeriod: data[minIdx]?.PERIOD ?? "",
+      minPeriod: periods[minIdx]?.[0] ?? "",
       minValue: values[minIdx] ?? 0,
     }
   }, [data])
 
-  // Comparison data: split into base and compare periods
+  // Comparison data
   const comparisonData = useMemo(() => {
+    if (groupBy !== "total") return []
     if (data.length < 2) return []
     const mid = Math.floor(data.length / 2)
     const base = data.slice(mid)
@@ -100,7 +222,7 @@ export default function TrendPage() {
       compare: compare[i]?.METRIC_VALUE ?? 0,
       diff: b.METRIC_VALUE - (compare[i]?.METRIC_VALUE ?? 0),
     }))
-  }, [data])
+  }, [data, groupBy])
 
   return (
     <div className="space-y-5">
@@ -109,7 +231,7 @@ export default function TrendPage() {
         <div>
           <h1 className="text-2xl font-bold" style={{ color: "var(--foreground)" }}>トレンド分析結果</h1>
           <p className="text-sm mt-0.5" style={{ color: "var(--muted-foreground)" }}>
-            指標: {metricConfig.label}
+            指標: {metricConfig.label}{groupBy !== "total" && ` | 集計軸: ${GROUPBY_OPTIONS.find((g) => g.id === groupBy)?.label}`}
           </p>
         </div>
         <button
@@ -213,6 +335,24 @@ export default function TrendPage() {
             </button>
           ))}
         </div>
+
+        <span style={{ color: "var(--muted-foreground)" }}>集計軸:</span>
+        <div className="flex gap-1 rounded-md p-0.5" style={{ backgroundColor: "var(--muted)" }}>
+          {GROUPBY_OPTIONS.map((opt) => (
+            <button
+              key={opt.id}
+              onClick={() => setGroupBy(opt.id)}
+              className="rounded px-2.5 py-1 font-medium transition-colors"
+              style={
+                groupBy === opt.id
+                  ? { backgroundColor: "var(--brand-primary)", color: "white" }
+                  : { color: "var(--muted-foreground)" }
+              }
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Loading */}
@@ -236,37 +376,9 @@ export default function TrendPage() {
           {/* Chart area */}
           <div className="rounded-xl border p-5" style={{ backgroundColor: "var(--card)", borderColor: "var(--border)" }}>
             {activeTab === "trend" ? (
-              <ResponsiveContainer width="100%" height={320}>
-                <ComposedChart data={data} margin={{ top: 10, right: 20, left: 20, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                  <XAxis dataKey="PERIOD" tick={{ fill: "var(--muted-foreground)", fontSize: 10 }} />
-                  <YAxis tick={{ fill: "var(--muted-foreground)", fontSize: 10 }} tickFormatter={(v) => v >= 1000000 ? `${(v / 1000000).toFixed(1)}M` : v >= 1000 ? `${(v / 1000).toFixed(0)}K` : v} />
-                  <Tooltip
-                    contentStyle={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", borderRadius: 8 }}
-                    labelStyle={{ color: "var(--foreground)" }}
-                    formatter={(value: number) => [metricConfig.format(value), metricConfig.label]}
-                  />
-                  <Area type="monotone" dataKey="METRIC_VALUE" fill="#3b82f6" fillOpacity={0.08} stroke="none" />
-                  <Line type="monotone" dataKey="METRIC_VALUE" name={metricConfig.label} stroke="#3b82f6" strokeWidth={2.5} dot={{ fill: "#3b82f6", r: 3 }} activeDot={{ r: 5 }} />
-                </ComposedChart>
-              </ResponsiveContainer>
+              <TrendChart chartData={chartData} groupBy={groupBy} seriesNames={seriesNames} metricConfig={metricConfig} />
             ) : (
-              <ResponsiveContainer width="100%" height={320}>
-                <ComposedChart data={comparisonData} margin={{ top: 10, right: 20, left: 20, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                  <XAxis dataKey="period" tick={{ fill: "var(--muted-foreground)", fontSize: 10 }} />
-                  <YAxis tick={{ fill: "var(--muted-foreground)", fontSize: 10 }} tickFormatter={(v) => v >= 1000000 ? `${(v / 1000000).toFixed(1)}M` : v >= 1000 ? `${(v / 1000).toFixed(0)}K` : String(v)} />
-                  <Tooltip
-                    contentStyle={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", borderRadius: 8 }}
-                    labelStyle={{ color: "var(--foreground)" }}
-                  />
-                  <Legend />
-                  <ReferenceLine y={0} stroke="var(--border)" />
-                  <Bar dataKey="diff" name="差分" fill="#94a3b8" fillOpacity={0.6} radius={[4, 4, 0, 0]} />
-                  <Line type="monotone" dataKey="base" name="基準期間" stroke="#3b82f6" strokeWidth={2} dot={{ fill: "#3b82f6", r: 3 }} />
-                  <Line type="monotone" dataKey="compare" name="比較期間" stroke="#ef4444" strokeWidth={2} dot={{ fill: "#ef4444", r: 3 }} />
-                </ComposedChart>
-              </ResponsiveContainer>
+              <ComparisonChart data={comparisonData} metricConfig={metricConfig} />
             )}
           </div>
 
@@ -282,11 +394,12 @@ export default function TrendPage() {
                 ダウンロード
               </button>
             </div>
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto max-h-[400px] overflow-y-auto">
               <table className="w-full text-sm">
-                <thead>
+                <thead className="sticky top-0">
                   <tr style={{ backgroundColor: "var(--muted)" }}>
                     <th className="px-3 py-2 text-left text-xs font-medium" style={{ color: "var(--muted-foreground)" }}>期間</th>
+                    {groupBy !== "total" && <th className="px-3 py-2 text-left text-xs font-medium" style={{ color: "var(--muted-foreground)" }}>カテゴリ</th>}
                     <th className="px-3 py-2 text-right text-xs font-medium" style={{ color: "var(--brand-primary)" }}>{metricConfig.label}</th>
                     <th className="px-3 py-2 text-right text-xs font-medium" style={{ color: "var(--muted-foreground)" }}>店舗数</th>
                     <th className="px-3 py-2 text-right text-xs font-medium" style={{ color: "var(--muted-foreground)" }}>会員数</th>
@@ -296,6 +409,7 @@ export default function TrendPage() {
                   {data.map((row, i) => (
                     <tr key={i} className="border-t" style={{ borderColor: "var(--border)" }}>
                       <td className="px-3 py-2 font-medium" style={{ color: "var(--foreground)" }}>{row.PERIOD}</td>
+                      {groupBy !== "total" && <td className="px-3 py-2" style={{ color: "var(--foreground)" }}>{row.SERIES_NAME}</td>}
                       <td className="px-3 py-2 text-right font-medium" style={{ color: "var(--brand-primary)" }}>{metricConfig.format(row.METRIC_VALUE)}</td>
                       <td className="px-3 py-2 text-right" style={{ color: "var(--muted-foreground)" }}>{row.STORE_COUNT?.toLocaleString()}</td>
                       <td className="px-3 py-2 text-right" style={{ color: "var(--muted-foreground)" }}>{row.MEMBER_COUNT?.toLocaleString()}</td>

@@ -1,5 +1,6 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
@@ -71,6 +72,16 @@ export function Sidebar() {
   const pathname = usePathname()
   const { collapsed, setCollapsed } = useSidebar()
   const { setCondPanelOpen } = useCondPanel()
+  const [isAdmin, setIsAdmin] = useState(false)
+
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((r) => r.json())
+      .then((d) => setIsAdmin(d.IS_ADMIN === true || d.is_admin === true))
+      .catch(() => setIsAdmin(false))
+  }, [])
+
+  const sections = NAV_SECTIONS.filter((s) => s.title !== "ADMIN" || isAdmin)
 
   return (
     <aside
@@ -85,7 +96,7 @@ export function Sidebar() {
     >
       {/* Logo area */}
       <div className="flex h-14 items-center gap-2 px-4 border-b" style={{ borderColor: "var(--sidebar-border)" }}>
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-cyan-400">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#5AB4E0]">
           <BarChart3 className="h-4 w-4 text-white" />
         </div>
         {!collapsed && (
@@ -97,7 +108,7 @@ export function Sidebar() {
 
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto py-3 px-2">
-        {NAV_SECTIONS.map((section) => (
+        {sections.map((section) => (
           <div key={section.title} className="mb-4">
             {!collapsed && (
               <span

@@ -5,8 +5,8 @@ import { DB } from "@/lib/constants"
 export const dynamic = "force-dynamic"
 export const maxDuration = 300
 
-const T_DT_STORE = `${DB}.ANALYTICS.DT_DAILY_STORE_SUMMARY`
-const T_DT_MEMBER = `${DB}.ANALYTICS.DT_MEMBER_DAILY_PURCHASE`
+const T_DT_STORE = `${DB}.ANALYTICS.DT_DAILY_MIDDLE_STORE`
+const T_DT_MEMBER = `${DB}.ANALYTICS.DT_MEMBER_CATEGORY_DAILY`
 const T_DT_MEMBER_ITEM = `${DB}.ANALYTICS.DT_MEMBER_ITEM_DAILY`
 const T_DT_MEMBER_CAT = `${DB}.ANALYTICS.DT_MEMBER_CATEGORY_DAILY`
 const T_MEMBERS = `${DB}.MASTER.DATAMART_COMMON_MEMBERS`
@@ -72,7 +72,7 @@ export async function GET(request: Request) {
               (SELECT COUNT(*) FROM ${T_MEMBERS}) AS total_members
             FROM ${T_DT_MEMBER_CAT} d
             WHERE ${dateFilter} ${storeFilter} ${buildCatFilter()}
-          `)
+          `, { callersRights: true })
         } else {
           rows = await querySnowflake(`
             SELECT
@@ -84,7 +84,8 @@ export async function GET(request: Request) {
               (SELECT COUNT(*) FROM ${T_MEMBERS}) AS total_members
             FROM ${T_DT_STORE} d
             WHERE ${dateFilter} ${storeFilter}
-          `)
+              AND d.TRADE_CLASS_3 = '売上'
+          `, { callersRights: true })
         }
         break
 
@@ -114,7 +115,7 @@ export async function GET(request: Request) {
             FROM member_stats
             GROUP BY AGE_GROUP, GENDER
             ORDER BY AGE_GROUP, GENDER
-          `)
+          `, { callersRights: true })
         } else {
           rows = await querySnowflake(`
             WITH member_stats AS (
@@ -123,8 +124,8 @@ export async function GET(request: Request) {
                 m.GENDER,
                 d.MAJICA_NO,
                 COUNT(DISTINCT d.BUSINESS_DATE) AS purchase_days,
-                SUM(d.DAILY_SALES) AS total_spend,
-                SUM(d.DAILY_RECEIPTS) AS txn_count
+                SUM(d.TOTAL_SALES) AS total_spend,
+                SUM(d.RECEIPT_COUNT) AS txn_count
               FROM ${T_DT_MEMBER} d
               JOIN ${T_MEMBERS} m ON m.MAJICA_NO = d.MAJICA_NO
               WHERE ${dateFilter} ${storeFilter}
@@ -140,7 +141,7 @@ export async function GET(request: Request) {
             FROM member_stats
             GROUP BY AGE_GROUP, GENDER
             ORDER BY AGE_GROUP, GENDER
-          `)
+          `, { callersRights: true })
         }
         break
 
@@ -156,9 +157,10 @@ export async function GET(request: Request) {
           FROM ${T_DT_STORE} d
           JOIN ${T_STORES} s ON s.STORE_CODE = d.STORE_CODE
           WHERE ${dateFilter} ${storeFilter}
+            AND d.TRADE_CLASS_3 = '売上'
           GROUP BY s.AREA_NAME
           ORDER BY total_sales DESC
-        `)
+        `, { callersRights: true })
         break
 
       case "behavior":
@@ -170,9 +172,10 @@ export async function GET(request: Request) {
             SUM(d.MEMBER_COUNT) AS buyers
           FROM ${T_DT_STORE} d
           WHERE ${dateFilter} ${storeFilter}
+            AND d.TRADE_CLASS_3 = '売上'
           GROUP BY day_of_week
           ORDER BY day_of_week
-        `)
+        `, { callersRights: true })
         break
 
       case "trial_repeat":
@@ -206,14 +209,14 @@ export async function GET(request: Request) {
             FROM member_freq
             WHERE purchase_days > 10
             ORDER BY count
-          `)
+          `, { callersRights: true })
         } else {
           rows = await querySnowflake(`
             WITH member_freq AS (
               SELECT
                 d.MAJICA_NO,
                 COUNT(DISTINCT d.BUSINESS_DATE) AS purchase_days,
-                SUM(d.DAILY_SALES) AS total_sales
+                SUM(d.TOTAL_SALES) AS total_sales
               FROM ${T_DT_MEMBER} d
               WHERE ${dateFilter} ${storeFilter}
               GROUP BY d.MAJICA_NO
@@ -237,7 +240,7 @@ export async function GET(request: Request) {
             FROM member_freq
             WHERE purchase_days > 10
             ORDER BY count
-          `)
+          `, { callersRights: true })
         }
         break
 

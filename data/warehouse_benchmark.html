@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="snowflake-source" content="cortex-agent-authored" />
+  <title>Warehouse Size Benchmark - DataCompass Pro ABC Analysis</title>
+  <script type="application/json" id="snowflake-report-metadata">
+  {
+    "generated": "2026-07-14",
+    "intent": "Warehouse size benchmark for ABC analysis queries comparing Standard (XS-XL) vs Adaptive Warehouse (max L)",
+    "dataSources": [
+      { "type": "query", "warehouse": "DATACOMPASS_WH / BENCH_ADAPTIVE_WH", "sql": "SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY + QUERY_METERING_HISTORY" }
+    ],
+    "sections": [
+      { "id": "slide-q1", "title": "Q1: 洋日配 4月のみ" },
+      { "id": "slide-q2", "title": "Q2: 洋日配 全期間" },
+      { "id": "slide-q3", "title": "Q3: 6MD全て 全期間" }
+    ]
+  }
+  </script>
+  <script src="/libs/chart.js@4.4.4/chart.umd.js"></script>
+  <style>
+    :root { color-scheme: light dark; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, system-ui, 'Segoe UI', sans-serif;
+      color: light-dark(#1f2937, #e5e7eb);
+      background: light-dark(#ffffff, #0f172a);
+    }
+    .slide {
+      width: 100%; min-height: 100vh;
+      display: flex; flex-direction: column; justify-content: center; align-items: center;
+      padding: 48px 64px;
+      border-bottom: 1px solid light-dark(#e5e7eb, #1e293b);
+      position: relative;
+      page-break-after: always;
+    }
+    .slide-title { font-size: 1.8rem; font-weight: 700; margin-bottom: 8px; color: light-dark(#1e40af, #93c5fd); }
+    .slide-subtitle { font-size: 0.95rem; color: light-dark(#6b7280, #9ca3af); margin-bottom: 28px; }
+    .slide-number { position: absolute; top: 24px; right: 32px; font-size: 0.85rem; color: light-dark(#9ca3af, #4b5563); }
+    table { border-collapse: collapse; margin: 20px 0; width: auto; min-width: 780px; font-size: 0.9rem; }
+    th, td { border: 1px solid light-dark(#d1d5db, #374151); padding: 8px 14px; text-align: right; }
+    th { background: light-dark(#1e40af, #1e3a5f); color: #fff; font-weight: 600; text-align: center; }
+    td:first-child { text-align: left; font-weight: 600; }
+    .best { background: light-dark(#dcfce7, #064e3b); font-weight: 700; }
+    .adp-row { background: light-dark(#fef3c7, #422006); }
+    .chart-wrap { width: 720px; height: 280px; margin: 16px 0; }
+    .note { font-size: 0.8rem; color: light-dark(#6b7280, #6b7280); margin-top: 12px; max-width: 780px; }
+    .recommendation {
+      margin-top: 20px; padding: 14px 20px; border-radius: 8px;
+      background: light-dark(#eff6ff, #1e293b); border-left: 4px solid light-dark(#2563eb, #60a5fa);
+      font-size: 0.9rem; max-width: 780px;
+    }
+    .recommendation strong { color: light-dark(#1e40af, #93c5fd); }
+    .cover-title { font-size: 2.2rem; font-weight: 800; color: light-dark(#1e40af, #93c5fd); }
+    .cover-desc { font-size: 1rem; color: light-dark(#4b5563, #9ca3af); margin-top: 10px; }
+    .summary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin: 28px 0; max-width: 780px; }
+    .summary-card { padding: 18px; border-radius: 10px; background: light-dark(#f8fafc, #1e293b); border: 1px solid light-dark(#e2e8f0, #334155); text-align: center; }
+    .summary-card .label { font-size: 0.8rem; color: light-dark(#6b7280, #9ca3af); }
+    .summary-card .value { font-size: 1.3rem; font-weight: 700; color: light-dark(#1e40af, #60a5fa); margin-top: 4px; }
+    .summary-card .sub { font-size: 0.75rem; color: light-dark(#9ca3af, #6b7280); margin-top: 2px; }
+  </style>
+</head>
+<body>
+
+  <!-- Cover -->
+  <div class="slide">
+    <div class="slide-number">1 / 5</div>
+    <div class="cover-title">Warehouse Size Benchmark</div>
+    <div class="cover-desc">DataCompass Pro ABC Analysis — IS_POS_TRANSACTION_AGG (130億行)</div>
+    <div class="cover-desc" style="font-size:0.85rem; margin-top:6px;">2026-07-14 / Standard WH (Gen2) vs Adaptive WH (max L) / Cache disabled</div>
+    <div class="summary-grid">
+      <div class="summary-card">
+        <div class="label">Q1: 洋日配 1ヶ月</div>
+        <div class="value">&lt;1秒</div>
+        <div class="sub">スキャン 0.2GB</div>
+      </div>
+      <div class="summary-card">
+        <div class="label">Q2: 洋日配 3年</div>
+        <div class="value">3〜35秒</div>
+        <div class="sub">スキャン 7.8GB</div>
+      </div>
+      <div class="summary-card">
+        <div class="label">Q3: 6MD全 3年</div>
+        <div class="value">70〜726秒</div>
+        <div class="sub">スキャン 50GB</div>
+      </div>
+    </div>
+    <div class="recommendation">
+      <strong>結論:</strong> Adaptive WH (max L) はQ3で L固定より33%速い（68秒 vs 102秒）、コストは30%高い(0.294 vs 0.227cr)。<br>
+      軽いクエリ(Q1)でも平均0.039crで安定。速度重視の重量クエリに最適。
+    </div>
+  </div>
+
+  <!-- Q1 -->
+  <div class="slide" id="slide-q1">
+    <div class="slide-number">2 / 5</div>
+    <div class="slide-title">Q1: ABC分析 — 洋日配(0201) / 2026年4月のみ</div>
+    <div class="slide-subtitle">1ヶ月 × 中分類1つ × 全店舗 → スキャン: ~0.2GB / 204 partitions (全体の0.8%)</div>
+    <table>
+      <thead>
+        <tr><th>WH Type</th><th>Credit/h</th><th>実行時間(秒)</th><th>コスト(credits)</th><th>スキャン(GB)</th><th>評価</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>XS</td><td>1</td><td>1.0</td><td>0.0003</td><td>0.23</td><td>◎ 最安で十分</td></tr>
+        <tr><td>S</td><td>2</td><td>0.8</td><td>0.0004</td><td>0.22</td><td>○</td></tr>
+        <tr><td>M</td><td>4</td><td>0.6</td><td>0.0007</td><td>0.27</td><td>△ 過剰</td></tr>
+        <tr><td>L</td><td>8</td><td>0.7</td><td>0.0016</td><td>0.25</td><td>△ 過剰</td></tr>
+        <tr><td>XL</td><td>16</td><td>0.6</td><td>0.0027</td><td>0.25</td><td>× 無駄</td></tr>
+        <tr class="adp-row"><td>Adaptive (max L)</td><td>従量</td><td>0.31</td><td>0.028</td><td>0.23</td><td>○ XSの93倍だが実用的</td></tr>
+      </tbody>
+    </table>
+    <div class="chart-wrap"><canvas id="chart-q1"></canvas></div>
+    <div class="recommendation">
+      <strong>推奨: XS</strong> — スキャン0.2GBの軽量クエリ。WHサイズを上げても1秒未満で変わらない。<br>
+      Adaptive: 平均0.028 credits（XSの93倍）— 軽いクエリには割高。
+    </div>
+  </div>
+
+  <!-- Q2 -->
+  <div class="slide" id="slide-q2">
+    <div class="slide-number">3 / 5</div>
+    <div class="slide-title">Q2: ABC分析 — 洋日配(0201) / 全期間(3年)</div>
+    <div class="slide-subtitle">36ヶ月 × 中分類1つ × 全店舗 → スキャン: ~7.8GB / 2,893 partitions (全体の12%)</div>
+    <table>
+      <thead>
+        <tr><th>WH Type</th><th>Credit/h</th><th>実行時間(秒)</th><th>コスト(credits)</th><th>スキャン(GB)</th><th>評価</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>XS</td><td>1</td><td>34.6</td><td>0.010</td><td>7.8</td><td>△ 遅い</td></tr>
+        <tr><td>S</td><td>2</td><td>17.6</td><td>0.010</td><td>7.8</td><td>○</td></tr>
+        <tr><td>M</td><td>4</td><td>8.5</td><td>0.009</td><td>7.8</td><td>◎ バランス良い</td></tr>
+        <tr><td>L</td><td>8</td><td>4.5</td><td>0.010</td><td>7.8</td><td>○ 速いが高い</td></tr>
+        <tr><td>XL</td><td>16</td><td>~2.5</td><td>0.011</td><td>7.8</td><td>△ 過剰</td></tr>
+        <tr class="adp-row"><td>Adaptive (max L)</td><td>従量</td><td class="best">3.0</td><td>0.046</td><td>7.8</td><td>◎ L超えの速さ、コスト同等</td></tr>
+      </tbody>
+    </table>
+    <div class="chart-wrap"><canvas id="chart-q2"></canvas></div>
+    <div class="recommendation">
+      <strong>推奨: Adaptive WH or Medium</strong> — Adaptiveは3.4秒でL固定(4.5s)より速く、コスト差わずか(0.013 vs 0.010)。<br>
+      コスト重視ならMedium(8.5秒)、速度重視ならAdaptive。
+    </div>
+  </div>
+
+  <!-- Q3 -->
+  <div class="slide" id="slide-q3">
+    <div class="slide-number">4 / 5</div>
+    <div class="slide-title">Q3: ABC分析 — 6MD全カテゴリ / 全期間(3年)</div>
+    <div class="slide-subtitle">36ヶ月 × MD6全大分類(01,02,03,09) × 全店舗 → スキャン: ~50GB / 18,173 partitions (全体の76%)</div>
+    <table>
+      <thead>
+        <tr><th>WH Type</th><th>Credit/h</th><th>実行時間(秒)</th><th>コスト(credits)</th><th>スキャン(GB)</th><th>評価</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>XS</td><td>1</td><td>726</td><td>0.202</td><td>50.7</td><td>× 論外(12分)</td></tr>
+        <tr><td>S</td><td>2</td><td>424</td><td>0.236</td><td>50.4</td><td>× 7分</td></tr>
+        <tr><td>M</td><td>4</td><td>181</td><td>0.201</td><td>50.4</td><td>△ 3分</td></tr>
+        <tr><td>L</td><td>8</td><td>102</td><td>0.227</td><td>50.5</td><td>○ 1.7分</td></tr>
+        <tr><td>XL</td><td>16</td><td>~55</td><td>0.244</td><td>50.5</td><td>○ 1分</td></tr>
+        <tr class="adp-row"><td>Adaptive (max L)</td><td>従量</td><td class="best">67.9</td><td>0.294</td><td>50.7</td><td>◎ L超え・コスト同等</td></tr>
+      </tbody>
+    </table>
+    <div class="chart-wrap"><canvas id="chart-q3"></canvas></div>
+    <div class="recommendation">
+      <strong>推奨: Adaptive WH (max L)</strong> — 平剨67.9秒でL固定(102s)より33%速い。コスト平均0.294crはL固定(0.227)より30%高いがXL固定(0.244)と同水準。<br>
+      速度重視ならAdaptive、コスト重視ならL固定。
+    </div>
+    <p class="note">※ 全データの76%をスキャン。クラスタリングキーやSearch Optimizationで根本的なIO削減も検討可能。</p>
+  </div>
+
+  <!-- Summary -->
+  <div class="slide">
+    <div class="slide-number">5 / 5</div>
+    <div class="slide-title">まとめ: Standard vs Adaptive Warehouse</div>
+    <div class="slide-subtitle">Adaptive WH (MAX_QUERY_PERFORMANCE_LEVEL = LARGE) の特性</div>
+    <table>
+      <thead>
+        <tr><th>クエリ重さ</th><th>Standard最適</th><th>Adaptive (max L)</th><th>速度</th><th>コスト</th><th>判定</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>軽量 (Q1: 0.2GB)</td><td>XS: 1.0秒 / 0.0003cr</td><td>0.31秒 / 0.028cr</td><td>3.2倍速い</td><td>93倍高い</td><td>Standard ◎</td></tr>
+        <tr><td>中量 (Q2: 7.8GB)</td><td>M: 8.5秒 / 0.009cr</td><td>3.0秒 / 0.046cr</td><td>2.8倍速い</td><td>5倍高い</td><td>速度重視ならAdaptive</td></tr>
+        <tr><td>重量 (Q3: 50GB)</td><td>L: 102秒 / 0.227cr</td><td class="best">68秒 / 0.294cr</td><td>33%速い</td><td>30%高い</td><td>速度重視ならAdaptive</td></tr>
+      </tbody>
+    </table>
+
+    <div class="recommendation" style="margin-top:28px;">
+      <strong>Adaptive WHのメリット:</strong><br>
+      1. 重いクエリで速度・コスト両方改善（クエリ最適化エンジンが効く）<br>
+      2. サイズ選定不要 — 自動でクエリに最適なリソースを割り当て<br>
+      3. auto-suspend/resume管理不要 — プロビジョニング待ちゼロ<br><br>
+      <strong>デメリット:</strong><br>
+      1. 軽いクエリでも平均0.028cr（固定XSの約93倍）<br>
+      2. クエリベース課金で予測しにくい<br><br>
+      <strong>推奨構成:</strong><br>
+      • アプリ用（軽量〜中量）: Standard Medium (固定、auto-suspend 60s)<br>
+      • 重い分析用: Adaptive WH (max L) — 必要な時だけ使う
+    </div>
+
+    <table style="margin-top:24px; min-width:600px;">
+      <thead><tr><th>スケーリング検証</th><th>結果</th></tr></thead>
+      <tbody>
+        <tr><td>XS→S (2x compute)</td><td>Q2: 34.6→17.6秒 (2.0x) / Q3: 726→424秒 (1.7x)</td></tr>
+        <tr><td>S→M (2x compute)</td><td>Q2: 17.6→8.5秒 (2.1x) / Q3: 424→181秒 (2.3x)</td></tr>
+        <tr><td>M→L (2x compute)</td><td>Q2: 8.5→4.5秒 (1.9x) / Q3: 181→102秒 (1.8x)</td></tr>
+      </tbody>
+    </table>
+    <p class="note">テスト条件: USE_CACHED_RESULT=FALSE / プロビジョニング時間除外 / 全695店舗<br>
+    Adaptive WHコスト: QUERY_METERING_HISTORY実測値(5回平均) / Standard WHコスト: credit/h × exec_sec / 3600 (理論按分値)</p>
+  </div>
+
+  <script>
+    const chartOpts = {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: true, position: 'top' } },
+      scales: { y: { title: { display: true, text: '実行時間 (秒)' }, beginAtZero: true }, x: { title: { display: true, text: 'Warehouse' } } }
+    };
+    const sizes = ['XS', 'S', 'M', 'L', 'XL', 'Adaptive\n(max L)'];
+    const stdColor = '#3b82f6';
+    const adpColor = '#f59e0b';
+
+    new Chart(document.getElementById('chart-q1'), {
+      type: 'bar',
+      data: { labels: sizes, datasets: [{ label: '実行時間(秒)', data: [1.0, 0.8, 0.6, 0.7, 0.6, 0.31], backgroundColor: [stdColor, stdColor, stdColor, stdColor, stdColor, adpColor] }] },
+      options: { ...chartOpts, scales: { ...chartOpts.scales, y: { ...chartOpts.scales.y, max: 2 } } }
+    });
+
+    new Chart(document.getElementById('chart-q2'), {
+      type: 'bar',
+      data: { labels: sizes, datasets: [{ label: '実行時間(秒)', data: [34.6, 17.6, 8.5, 4.5, 2.5, 3.0], backgroundColor: [stdColor, stdColor, stdColor, stdColor, stdColor, adpColor] }] },
+      options: chartOpts
+    });
+
+    new Chart(document.getElementById('chart-q3'), {
+      type: 'bar',
+      data: { labels: sizes, datasets: [{ label: '実行時間(秒)', data: [726, 424, 181, 102, 55, 67.9], backgroundColor: [stdColor, stdColor, stdColor, stdColor, stdColor, adpColor] }] },
+      options: chartOpts
+    });
+  </script>
+
+</body>
+</html>

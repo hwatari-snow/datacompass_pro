@@ -8,10 +8,11 @@ import {
 } from "recharts"
 import { useConditions } from "@/components/conditions-context"
 import s from "./results.module.css"
+import { CHART_COLORS, GENDER, SEG_COLORS as SEG, SEMANTIC } from "@/lib/palette"
 
-const COLORS = { male: "#4A90D9", female: "#E8719E", accent: "#5BC8AC", accent2: "#E6D72A", accent3: "#F18D9E" }
-const PALETTE = ["#5BC8AC", "#4A90D9", "#E8719E", "#E6D72A", "#F18D9E", "#95A5A6", "#8E44AD", "#E67E22"]
-const SEG_COLORS: Record<string, string> = { "ヘビー": "#E74C3C", "ミドル": "#E6D72A", "ライト": "#5BC8AC" }
+const COLORS = { male: GENDER.male, female: GENDER.female, accent: CHART_COLORS[4], accent2: CHART_COLORS[1], accent3: CHART_COLORS[7] }
+const PALETTE = CHART_COLORS
+const SEG_COLORS: Record<string, string> = SEG
 const DAY_NAMES = ["日", "月", "火", "水", "木", "金", "土"]
 
 type TabType = "age_gender" | "area" | "behavior" | "trial_repeat"
@@ -318,7 +319,7 @@ function AreaTab({ data }: { data: AreaRow[] }) {
 
   return (
     <div>
-      <div className={s.sectionTitle}><span className={s.dot} style={{ background: "#E6D72A" }} />エリア別分析</div>
+      <div className={s.sectionTitle}><span className={s.dot} style={{ background: CHART_COLORS[1] }} />エリア別分析</div>
       <div className={s.metricSelector}>
         {areaMetrics.map((mt) => (
           <button key={mt.key} className={`${s.metricBtn} ${metric === mt.key ? s.active : ""}`} onClick={() => setMetric(mt.key)}>{mt.label}</button>
@@ -384,7 +385,7 @@ function BehaviorTab({ data }: { data: BehaviorRow[] }) {
 
   return (
     <div>
-      <div className={s.sectionTitle}><span className={s.dot} style={{ background: "#F18D9E" }} />購買行動分析（曜日別）</div>
+      <div className={s.sectionTitle}><span className={s.dot} style={{ background: CHART_COLORS[7] }} />購買行動分析（曜日別）</div>
       <div className={s.metricSelector}>
         {bMetrics.map((mt) => (
           <button key={mt.key} className={`${s.metricBtn} ${metric === mt.key ? s.active : ""}`} onClick={() => setMetric(mt.key)}>{mt.label}</button>
@@ -399,11 +400,11 @@ function BehaviorTab({ data }: { data: BehaviorRow[] }) {
             <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => formatNum(v)} />
             <Tooltip formatter={(v: number) => bm.format(v)} />
             <Bar dataKey={metric} name={bm.label} radius={[4, 4, 0, 0]} barSize={36}>
-              {chartData.map((d, i) => <Cell key={i} fill={d.day === peakDay ? "#E74C3C" : COLORS.accent} />)}
+              {chartData.map((d, i) => <Cell key={i} fill={d.day === peakDay ? SEMANTIC.emphasis : COLORS.accent} />)}
             </Bar>
           </BarChart>
         </ResponsiveContainer>
-        {peakDay && <p style={{ textAlign: "center", fontSize: "0.75rem", color: "#7F8C8D", marginTop: 4 }}>※ピーク曜日（{peakDay}曜日）を赤で強調</p>}
+        {peakDay && <p style={{ textAlign: "center", fontSize: "0.75rem", color: "#7F8C8D", marginTop: 4 }}>※ピーク曜日（{peakDay}曜日）を強調</p>}
       </div>
       <div className={s.card}>
         <div className={s.cardTitle}>曜日別 詳細テーブル</div>
@@ -456,7 +457,7 @@ function TrialRepeatTab({ data }: { data: FreqRow[] }) {
 
   return (
     <div>
-      <div className={s.sectionTitle}><span className={s.dot} style={{ background: "#8E44AD" }} />トライアル/リピート分析</div>
+      <div className={s.sectionTitle}><span className={s.dot} style={{ background: CHART_COLORS[6] }} />トライアル/リピート分析</div>
 
       {/* Segment definition */}
       <div className={s.segDef}>
