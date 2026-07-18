@@ -5,11 +5,12 @@
 本ドキュメントは DataCompass Pro で使用している Snowflake テーブル群のデータ概要をまとめたものです。
 
 - **データベース**: `PPIH_FULL_DB`
-- **データ期間**: 2023-05-01 〜 2026-07-05 (37ヶ月 / 1,127日)
+- **データ期間**: 2023-05-01 〜 2026-07-05 (38ヶ月 / 1,162日)
 - **対象店舗数**: 706店舗（営業中687 + 閉店19）
 - **対象会員数**: 2,000万人
 - **対象商品数**: 694万SKU（DS 424万 + UNY 270万）
-- **POSレコード数**: 約129.6億行
+- **POSレコード数**: 約133.4億行（13,341,089,655）
+- **カテゴリ一致**: 全59大分類 + 洋日配/和日配の中分類まで、Excel「現行件数(journal件数)」のレコード数・SKU数と全期間で完全一致（差異0）
 
 ---
 
@@ -24,22 +25,22 @@ flowchart TD
     end
 
     subgraph raw [Source - RAW POS]
-        FACT[(IS_POS_TRANSACTION\n12.9B rows\nCLUSTER BY DATE+MIDDLE)]
+        FACT[(IS_POS_TRANSACTION\n13.3B rows\nCLUSTER BY DATE+MIDDLE)]
     end
 
     subgraph dtL1 [Dynamic Tables - L1]
-        AGG[IS_POS_TRANSACTION_AGG\n12.9B rows\nCLUSTER BY DATE+MIDDLE]
-        DT_STORE[DT_DAILY_STORE_SUMMARY\n761K rows]
-        DT_MAJOR[DT_DAILY_MAJOR_STORE\n33M rows\nCLUSTER BY DATE+MD]
-        DT_MIDDLE[DT_DAILY_MIDDLE_STORE\n115M rows\nCLUSTER BY DATE+MIDDLE]
-        DT_MDP[DT_MEMBER_DAILY_PURCHASE\n1.09B rows\nCLUSTER BY DATE+MAJICA]
-        DT_MID[DT_MEMBER_ITEM_DAILY\n5.8B rows\nCLUSTER BY DATE+MAJICA]
+        AGG[IS_POS_TRANSACTION_AGG\n13.2B rows\nCLUSTER BY DATE+MIDDLE]
+        DT_STORE[DT_DAILY_STORE_SUMMARY\n2.9M rows]
+        DT_MAJOR[DT_DAILY_MAJOR_STORE\n104M rows\nCLUSTER BY DATE+MD]
+        DT_MIDDLE[DT_DAILY_MIDDLE_STORE\n333M rows\nCLUSTER BY DATE+MIDDLE]
+        DT_MDP[DT_MEMBER_DAILY_PURCHASE\n7.2B rows\nCLUSTER BY DATE+MAJICA]
+        DT_MID[DT_MEMBER_ITEM_DAILY\n7.2B rows\nCLUSTER BY DATE+MAJICA]
     end
 
     subgraph dtL2 [Dynamic Tables - L2]
-        DT_MAKER[DT_AGG_DAILY_MAKER_STORE\n381M rows\nCLUSTER BY DATE+MAKER]
-        DT_MINOR[DT_AGG_DAILY_MINOR_STORE\n382M rows\nCLUSTER BY DATE+MIDDLE]
-        DT_MCAT[DT_MEMBER_CATEGORY_DAILY\n5.8B rows\nCLUSTER BY DATE+MIDDLE]
+        DT_MAKER[DT_AGG_DAILY_MAKER_STORE\n951M rows\nCLUSTER BY DATE+MAKER]
+        DT_MINOR[DT_AGG_DAILY_MINOR_STORE\n855M rows\nCLUSTER BY DATE+MIDDLE]
+        DT_MCAT[DT_MEMBER_CATEGORY_DAILY\n7.0B rows\nCLUSTER BY DATE+MIDDLE]
     end
 
     FACT --> AGG
@@ -65,9 +66,9 @@ flowchart TD
 | 項目 | 値 |
 |------|------|
 | スキーマ | `PPIH_FULL_DB.ANALYTICS` |
-| 件数 | **12,964,573,259 (約129.6億行)** |
+| 件数 | **13,341,089,655 (約133.4億行)** |
 | 期間 | 2023-05-01 〜 2026-07-05 |
-| 日数 | 1,127日 |
+| 日数 | 1,162日 |
 | 店舗数 | 676（営業中店舗のみ） |
 | 商品数 | 4,244,300 (DS区分のみ) |
 | majica会員紐付け率 | 45% |
@@ -82,24 +83,23 @@ flowchart TD
 | TRADE_KEY | VARCHAR | レシートキー |
 | MAJICA_NO | VARCHAR | 会員番号 (NULL = 非会員) |
 | ITEM_CODE | VARCHAR | JANコード |
-| ITEM_SALES_QUANTITY | NUMBER | 売上数量（正規分布的ばらつき、平均~2個） |
-| ITEM_SALES_AMOUNT | NUMBER | 売上金額（商品ごと固定単価 × 数量） |
+| ITEM_SALES_QUANTITY | NUMBER | 売上数量（80%が1〜5個 / 20%が6〜20個） |
+| ITEM_SALES_AMOUNT | NUMBER | 売上金額（50〜5,000円の一様分布） |
 | TRADE_CLASS_3 | VARCHAR | 取引区分 |
 | MIDDLE_CODE | VARCHAR | 中分類コード（非正規化列） |
 
-### 単価設定ロジック
+### 生成ロジック（カテゴリ別ターゲット駆動）
 
-商品ごとに固定単価（ITEM_CODEのHASHで決定）。MD別の価格帯：
+Excel「現行件数」の各カテゴリ（大分類 全59 + 洋日配/和日配の中分類）の
+**レコード数・SKU数を全期間で完全一致**させて生成（差異0）。DS区分のみを対象
+（UNY 270万はExcel対象外のため未生成。JOIN不一致の「マスタ外」1,404 SKU /
+376,196,991件を別途保持）。
 
-| MD | 価格帯 |
-|----|--------|
-| 6 フード&リカー | 80〜480円 |
-| 7 フレッシュフード | 100〜700円 |
-| 3 ライフ＆ペット | 150〜950円 |
-| 5 トレンド&コスメ | 200〜3,200円 |
-| 2 ホーム&レジャー | 200〜4,200円 |
-| 4 ファッション&ブランド | 300〜5,300円 |
-| 1 デジタル&バラエティ | 500〜8,500円 |
+- **カバレッジ**: 各カテゴリの全SKUが最低1回出現（全期間SKU数 = マスタSKU数）
+- **人気度**: バルク配分は冪乗分布で偏りを付与（一部SKUが高頻度）
+- **日付分布**: 曜日（土1.35 / 日1.30 / 金1.10）・季節（12月1.40 / 8月1.15 / 2月0.85 等）・
+  微成長トレンド（+10%）で重み付け。1か月/1年のSKU数はこのシェイプで近似
+- **金額**: 50〜5,000円の一様分布 / **数量**: 80%が1〜5個・20%が6〜20個
 
 ---
 
@@ -140,17 +140,17 @@ flowchart TD
 - **0202 和日配**: 35,496 SKU / 44サブカテゴリ（うどん、ラーメン、豆腐等）
 - **0299 デイリーその他**: 54,494 SKU
 
-#### 和洋日配 期間別レコード数検証
+#### 和洋日配 レコード数・SKU数（journal件数と完全一致）
 
-Excel「日別売上DM件数_和洋日配」シートの期間別合計件数と完全一致：
+Excel「journal件数_和洋日配」シートの全期間目標と完全一致（全期間のレコード数・
+SKU数は差異0。1か月/1年は曜日・季節性シェイプによる近似）：
 
-| 中分類 | 1か月 (2026-04) | 1年 (2025-07〜2026-06) | 全期間 (2023-05〜2026-07) |
-|--------|----------------:|----------------------:|-------------------------:|
-| 洋日配 | 9,318,870 | 104,060,976 | 350,079,936 |
-| 和日配 | 6,350,520 | 70,913,879 | 238,566,912 |
-| **合計** | **15,669,390** | **174,974,855** | **588,646,848** |
-
-各サブカテゴリ（小分類・細分類）のSKU数およびレコード数もExcelのJ列・K列に準拠して生成。
+| 中分類 | SKU数 | 全期間レコード数 (2023-05〜2026-07) |
+|--------|------:|-------------------------:|
+| 0201 洋日配 | 25,192 | 923,449,377 |
+| 0202 和日配 | 35,496 | 916,153,901 |
+| 0299 デイリーその他 | 54,494 | 1,073,725,332 |
+| **デイリー(大分類02)計** | **115,182** | **2,913,328,610** |
 
 ### 主要カラム
 
@@ -232,25 +232,25 @@ Excel「日別売上DM件数_和洋日配」シートの期間別合計件数と
 
 | DT名 | 件数 | クラスタリングキー | 集計粒度 | WH |
 |-------|---:|---|---|---|
-| IS_POS_TRANSACTION_AGG | 12.9B | `LINEAR(DATE, MIDDLE)` | 日×店×商品×中分類 | 6XL |
-| DT_DAILY_STORE_SUMMARY | 762K | なし | 日×店 | 6XL |
-| DT_DAILY_MAJOR_STORE | 33M | `LINEAR(DATE, MD)` | 日×店×大分類 | 6XL |
-| DT_DAILY_MIDDLE_STORE | 115M | `LINEAR(DATE, MIDDLE)` | 日×店×中分類 | 6XL |
-| DT_MEMBER_DAILY_PURCHASE | 1.09B | `LINEAR(DATE, MAJICA)` | 会員×日×店 | 6XL |
-| DT_MEMBER_ITEM_DAILY | 5.8B | `LINEAR(DATE, MAJICA)` | 会員×商品×日×店 | 6XL |
+| IS_POS_TRANSACTION_AGG | 13.2B | `LINEAR(DATE, MIDDLE)` | 日×店×商品×中分類 | 6XL |
+| DT_DAILY_STORE_SUMMARY | 2.9M | なし | 日×店 | 6XL |
+| DT_DAILY_MAJOR_STORE | 104M | `LINEAR(DATE, MD)` | 日×店×大分類 | 6XL |
+| DT_DAILY_MIDDLE_STORE | 333M | `LINEAR(DATE, MIDDLE)` | 日×店×中分類 | 6XL |
+| DT_MEMBER_DAILY_PURCHASE | 7.2B | `LINEAR(DATE, MAJICA)` | 会員×日×店 | 6XL |
+| DT_MEMBER_ITEM_DAILY | 7.2B | `LINEAR(DATE, MAJICA)` | 会員×商品×日×店 | 6XL |
 
 ### L2: DTから派生
 
 | DT名 | 件数 | クラスタリングキー | ソース | 集計粒度 |
 |-------|---:|---|---|---|
-| DT_AGG_DAILY_MAKER_STORE | 381M | `LINEAR(DATE, MAKER)` | AGG | 日×店×メーカー |
-| DT_AGG_DAILY_MINOR_STORE | 382M | `LINEAR(DATE, MIDDLE)` | AGG | 日×店×小分類 |
-| DT_MEMBER_CATEGORY_DAILY | 5.8B | `LINEAR(DATE, MIDDLE)` | MEMBER_ITEM | 会員×日×店×中分類 |
+| DT_AGG_DAILY_MAKER_STORE | 951M | `LINEAR(DATE, MAKER)` | AGG | 日×店×メーカー |
+| DT_AGG_DAILY_MINOR_STORE | 855M | `LINEAR(DATE, MIDDLE)` | AGG | 日×店×小分類 |
+| DT_MEMBER_CATEGORY_DAILY | 7.0B | `LINEAR(DATE, MIDDLE)` | MEMBER_ITEM | 会員×日×店×中分類 |
 
 ### DT依存ツリー
 
 ```
-IS_POS_TRANSACTION (RAW 129.6億, CLUSTER BY DATE+MIDDLE)
+IS_POS_TRANSACTION (RAW 133.4億, CLUSTER BY DATE+MIDDLE)
 ├── IS_POS_TRANSACTION_AGG (DT, lag=1day)
 │   ├── DT_AGG_DAILY_MAKER_STORE (DT, lag=1day)
 │   └── DT_AGG_DAILY_MINOR_STORE (DT, lag=1day)
@@ -296,7 +296,8 @@ IS_POS_TRANSACTION (RAW 129.6億, CLUSTER BY DATE+MIDDLE)
 
 | シート名 | 用途 |
 |---------|------|
+| journal件数_全体GP別 | POS大分類別のレコード数・SKU数（生成の主目標・完全一致） |
+| journal件数_和洋日配 | 洋日配/和日配の中分類・小分類別レコード数・SKU数（完全一致） |
 | 商品マスタ件数_全体GP別 | DS商品マスタのMD/大分類/SKU数 |
-| 日別売上DM件数_和洋日配 | 和洋日配の中分類以下の構造とレコード数 |
-| journal件数_全体GP別 | POSの大分類別レコード数 |
+| 業態別店舗数（画像） | 店舗マスタの業態構成 |
 | 業態別店舗数（画像） | 店舗マスタの業態構成 |

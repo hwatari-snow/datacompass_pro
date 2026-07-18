@@ -279,6 +279,33 @@ $$;
 
 -- Execute: CALL PPIH_FULL_DB.STAGING.GENERATE_IDPOS_V3();
 -- Takes ~30 min on XL warehouse
+--
+-- ============================================================
+-- SUPERSEDED (2026-07-19) by GENERATE_IDPOS_V4 (category-targeted)
+-- ============================================================
+-- V3 used a uniform item draw and a fixed date loop, which left 12 major
+-- categories empty and did NOT match the "現行件数" spreadsheet at category level.
+-- V4 regenerates IS_POS_TRANSACTION to match per-category (major全59 + 洋日配/和日配
+-- 中分類) TARGET_RECORDS and TARGET_SKUS exactly. DS class only (UNY excluded).
+-- Result: 13,341,089,655 rows, 2023-05-01〜2026-07-05, all 62 category targets diff=0.
+--
+-- Objects (PPIH_FULL_DB.STAGING):
+--   CATEGORY_TARGETS  - 62 rows: CATEGORY_KEY, TARGET_SKUS, TARGET_RECORDS (from spreadsheet)
+--   SKU_PLAN          - every DS SKU + 1404 EXT ('999...') mapped to CATEGORY_KEY
+--                       (daily major '02' split by MIDDLE_CODE 0201/0202/0299)
+--   DATE_BUCKETS      - weighted date sampling: weekend (Sat 1.35 / Sun 1.30 / Fri 1.10),
+--                       seasonal (Dec 1.40, Aug 1.15, Feb 0.85 ...), +10% growth trend
+--   GENERATE_IDPOS_V4 - per category: coverage (1 row/SKU) + bulk via
+--                       SKU_PLAN CROSS JOIN GENERATOR(reps) + remainder. Exact totals.
+--
+-- PERF: TABLE(GENERATOR(ROWCOUNT=>N)) is single-threaded; drive generation from a
+-- DISTRIBUTED table scan (SKU_PLAN CROSS JOIN small GENERATOR) to parallelize. Ran in
+-- minutes on PPIH_WH_6XL (X6LARGE).
+--
+-- POST-GEN: SWAP into IS_POS_TRANSACTION; SWAP drops CLUSTER/SOS/MIDDLE_CODE column and
+-- breaks change tracking. Re-add MIDDLE_CODE (join master), CLUSTER BY (BUSINESS_DATE,
+-- STORE_CODE), SEARCH OPTIMIZATION ON EQUALITY(ITEM_CODE), SET CHANGE_TRACKING=TRUE,
+-- then REFRESH all 9 DTs in dependency order. Old data kept as IS_POS_TRANSACTION_BAK.
 
 -- ============================================================
 -- STEP 5: Second year of data (adds ~4.3B more rows for 2-year total)
