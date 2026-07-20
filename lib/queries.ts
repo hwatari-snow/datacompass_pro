@@ -33,7 +33,6 @@ const T_TRADE = `${DB}.ANALYTICS.IS_POS_TRANSACTION`
 const T_ITEMS = `${DB}.MASTER.DATAMART_COMMON_ITEMS`
 const T_STORES = `${DB}.MASTER.DATAMART_COMMON_STORES`
 const T_MEMBERS = `${DB}.MASTER.DATAMART_COMMON_MEMBERS`
-const T_DT_MAJOR = `${DB}.ANALYTICS.DT_DAILY_MAJOR_STORE`
 const T_DT_MIDDLE = `${DB}.ANALYTICS.DT_DAILY_MIDDLE_STORE`
 const T_DT_STORE = `${DB}.ANALYTICS.DT_DAILY_STORE_SUMMARY`
 const T_TRADE_AGG = `${DB}.ANALYTICS.IS_POS_TRANSACTION_AGG`
@@ -155,7 +154,7 @@ export function buildAbcSummarySql(args: Omit<AbcQueryArgs, "criteria">): string
     const codeCol = isStoreTab
       ? (DT_STORE_UNIT_COLS[unit] ?? "d.STORE_CODE")
       : (DT_PRODUCT_UNIT_COLS[unit] ?? "d.MD_CODE")
-    const filters: string[] = [`d.BUSINESS_DATE BETWEEN '${start}' AND '${end}'`]
+    const filters: string[] = [`d.BUSINESS_DATE BETWEEN '${start}' AND '${end}'`, `d.TRADE_CLASS_3 = '売上'`]
     if (conditions.storeCodes.length > 0) filters.push(`d.STORE_CODE IN (${inList(conditions.storeCodes)})`)
     if (!isStoreTab) {
       if (conditions.mdCodes?.length) filters.push(`d.MD_CODE IN (${inListRaw(conditions.mdCodes)})`)
@@ -178,7 +177,7 @@ WHERE ${filters.join("\n  AND ")}
   if (canUseAggDt) {
     const dtTable = unit === "minor" ? T_DT_AGG_MINOR : T_DT_AGG_MAKER
     const aggCodeCol = unit === "minor" ? "d.MINOR_CODE" : "d.MAKER_CODE"
-    const aggFilters: string[] = [`d.BUSINESS_DATE BETWEEN '${start}' AND '${end}'`]
+    const aggFilters: string[] = [`d.BUSINESS_DATE BETWEEN '${start}' AND '${end}'`, `d.TRADE_CLASS_3 = '売上'`]
     if (conditions.storeCodes.length > 0) aggFilters.push(`d.STORE_CODE IN (${inList(conditions.storeCodes)})`)
     if (conditions.mdCodes?.length) aggFilters.push(`d.MD_CODE IN (${inListRaw(conditions.mdCodes)})`)
     if (conditions.majorCodes?.length) aggFilters.push(`d.MAJOR_CODE IN (${inListRaw(conditions.majorCodes)})`)
@@ -195,7 +194,7 @@ WHERE ${aggFilters.join("\n  AND ")}
   }
 
   if (canUseAggFact) {
-    const aggFilters: string[] = [`t.BUSINESS_DATE BETWEEN '${start}' AND '${end}'`]
+    const aggFilters: string[] = [`t.BUSINESS_DATE BETWEEN '${start}' AND '${end}'`, `t.TRADE_CLASS_3 = '売上'`]
     if (conditions.storeCodes.length > 0) aggFilters.push(`t.STORE_CODE IN (${inList(conditions.storeCodes)})`)
     if (conditions.mdCodes?.length) aggFilters.push(`i.MD_CODE IN (${inListRaw(conditions.mdCodes)})`)
     if (conditions.majorCodes?.length) aggFilters.push(`i.MAJOR_CODE IN (${inListRaw(conditions.majorCodes)})`)
@@ -224,7 +223,7 @@ WHERE ${aggFilters.join("\n  AND ")}
     || !!(conditions.makerCodes?.length) || !!(conditions.categoryClass)
   const needsStores = tab === "store" && unit !== "store"
 
-  const filters: string[] = [`t.BUSINESS_DATE BETWEEN '${start}' AND '${end}'`]
+  const filters: string[] = [`t.BUSINESS_DATE BETWEEN '${start}' AND '${end}'`, `t.TRADE_CLASS_3 = '売上'`]
   if (conditions.storeCodes.length > 0) filters.push(`t.STORE_CODE IN (${inList(conditions.storeCodes)})`)
   if (conditions.itemCodes.length > 0) filters.push(`t.ITEM_CODE IN (${inList(conditions.itemCodes)})`)
   if (needsItems) {
@@ -330,7 +329,7 @@ function buildAbcSqlFromDt(args: AbcQueryArgs): string {
   const dtTable = T_DT_MIDDLE  // Always use RAP-protected middle-store DT
 
   // Build WHERE filters for DT
-  const filters: string[] = [`d.BUSINESS_DATE BETWEEN '${start}' AND '${end}'`]
+  const filters: string[] = [`d.BUSINESS_DATE BETWEEN '${start}' AND '${end}'`, `d.TRADE_CLASS_3 = '売上'`]
   if (conditions.storeCodes.length > 0) filters.push(`d.STORE_CODE IN (${inList(conditions.storeCodes)})`)
   if (!isStoreTab) {
     if (conditions.mdCodes?.length) filters.push(`d.MD_CODE IN (${inListRaw(conditions.mdCodes)})`)
@@ -394,7 +393,7 @@ function buildAbcSqlFromAggDt(args: AbcQueryArgs): string {
   }
   const [codeCol, nameCol] = DT_UNIT_COLS[unit] ?? DT_UNIT_COLS["minor"]
 
-  const filters: string[] = [`d.BUSINESS_DATE BETWEEN '${start}' AND '${end}'`]
+  const filters: string[] = [`d.BUSINESS_DATE BETWEEN '${start}' AND '${end}'`, `d.TRADE_CLASS_3 = '売上'`]
   if (conditions.storeCodes.length > 0) filters.push(`d.STORE_CODE IN (${inList(conditions.storeCodes)})`)
   if (conditions.mdCodes?.length) filters.push(`d.MD_CODE IN (${inListRaw(conditions.mdCodes)})`)
   if (conditions.majorCodes?.length) filters.push(`d.MAJOR_CODE IN (${inListRaw(conditions.majorCodes)})`)
@@ -447,7 +446,7 @@ function buildAbcSqlFromAggFact(args: AbcQueryArgs): string {
   const end = period === "base" ? conditions.baseEnd : conditions.compareEnd!
   const metricCol = AGG_METRIC_COL[criteria === "receipt" ? "receipt" : criteria]
 
-  const filters: string[] = [`t.BUSINESS_DATE BETWEEN ${dateLit(start)} AND ${dateLit(end)}`]
+  const filters: string[] = [`t.BUSINESS_DATE BETWEEN ${dateLit(start)} AND ${dateLit(end)}`, `t.TRADE_CLASS_3 = '売上'`]
   if (conditions.storeCodes.length > 0) filters.push(`t.STORE_CODE IN (${inList(conditions.storeCodes)})`)
   if (conditions.categoryClass) filters.push(`i.ITEM_CATEGORY_CLASS = ${lit(conditions.categoryClass)}`)
   if (conditions.mdCodes?.length) filters.push(`i.MD_CODE IN (${inListRaw(conditions.mdCodes)})`)
@@ -509,7 +508,7 @@ function buildAbcSqlFromFact(args: AbcQueryArgs): string {
   const needsStoresForName = tab === "store" && unit === "store" // need store name
 
   // Build WHERE directly on fact table
-  const filters: string[] = [`t.BUSINESS_DATE BETWEEN ${dateLit(start)} AND ${dateLit(end)}`]
+  const filters: string[] = [`t.BUSINESS_DATE BETWEEN ${dateLit(start)} AND ${dateLit(end)}`, `t.TRADE_CLASS_3 = '売上'`]
   if (conditions.storeCodes.length > 0) filters.push(`t.STORE_CODE IN (${inList(conditions.storeCodes)})`)
   if (conditions.itemCodes.length > 0) filters.push(`t.ITEM_CODE IN (${inList(conditions.itemCodes)})`)
   if (needsItems) {

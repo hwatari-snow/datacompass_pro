@@ -7,7 +7,6 @@ export const maxDuration = 300
 
 const T_DT_STORE = `${DB}.ANALYTICS.DT_DAILY_MIDDLE_STORE`
 const T_DT_MEMBER = `${DB}.ANALYTICS.DT_MEMBER_CATEGORY_DAILY`
-const T_DT_MEMBER_ITEM = `${DB}.ANALYTICS.DT_MEMBER_ITEM_DAILY`
 const T_DT_MEMBER_CAT = `${DB}.ANALYTICS.DT_MEMBER_CATEGORY_DAILY`
 const T_MEMBERS = `${DB}.MASTER.DATAMART_COMMON_MEMBERS`
 const T_STORES = `${DB}.MASTER.DATAMART_COMMON_STORES`
@@ -146,36 +145,67 @@ export async function GET(request: Request) {
         break
 
       case "area":
-        rows = await querySnowflake(`
-          SELECT
-            s.AREA_NAME,
-            COUNT(DISTINCT d.STORE_CODE) AS store_count,
-            SUM(d.TOTAL_SALES_AMOUNT) AS total_sales,
-            SUM(d.RECEIPT_COUNT) AS transactions,
-            SUM(d.MEMBER_COUNT) AS buyers,
-            ROUND(SUM(d.TOTAL_SALES_AMOUNT) / NULLIF(SUM(d.RECEIPT_COUNT), 0), 0) AS avg_basket
-          FROM ${T_DT_STORE} d
-          JOIN ${T_STORES} s ON s.STORE_CODE = d.STORE_CODE
-          WHERE ${dateFilter} ${storeFilter}
-            AND d.TRADE_CLASS_3 = '売上'
-          GROUP BY s.AREA_NAME
-          ORDER BY total_sales DESC
-        `, { callersRights: true })
+        if (hasProductFilter) {
+          rows = await querySnowflake(`
+            SELECT
+              s.AREA_NAME,
+              COUNT(DISTINCT d.STORE_CODE) AS store_count,
+              SUM(d.TOTAL_SALES) AS total_sales,
+              SUM(d.RECEIPT_COUNT) AS transactions,
+              COUNT(DISTINCT d.MAJICA_NO) AS buyers,
+              ROUND(SUM(d.TOTAL_SALES) / NULLIF(SUM(d.RECEIPT_COUNT), 0), 0) AS avg_basket
+            FROM ${T_DT_MEMBER_CAT} d
+            JOIN ${T_STORES} s ON s.STORE_CODE = d.STORE_CODE
+            WHERE ${dateFilter} ${storeFilter} ${buildCatFilter()}
+            GROUP BY s.AREA_NAME
+            ORDER BY total_sales DESC
+          `, { callersRights: true })
+        } else {
+          rows = await querySnowflake(`
+            SELECT
+              s.AREA_NAME,
+              COUNT(DISTINCT d.STORE_CODE) AS store_count,
+              SUM(d.TOTAL_SALES_AMOUNT) AS total_sales,
+              SUM(d.RECEIPT_COUNT) AS transactions,
+              SUM(d.MEMBER_COUNT) AS buyers,
+              ROUND(SUM(d.TOTAL_SALES_AMOUNT) / NULLIF(SUM(d.RECEIPT_COUNT), 0), 0) AS avg_basket
+            FROM ${T_DT_STORE} d
+            JOIN ${T_STORES} s ON s.STORE_CODE = d.STORE_CODE
+            WHERE ${dateFilter} ${storeFilter}
+              AND d.TRADE_CLASS_3 = '売上'
+            GROUP BY s.AREA_NAME
+            ORDER BY total_sales DESC
+          `, { callersRights: true })
+        }
         break
 
       case "behavior":
-        rows = await querySnowflake(`
-          SELECT
-            DAYOFWEEK(d.BUSINESS_DATE) AS day_of_week,
-            SUM(d.TOTAL_SALES_AMOUNT) AS total_sales,
-            SUM(d.RECEIPT_COUNT) AS transactions,
-            SUM(d.MEMBER_COUNT) AS buyers
-          FROM ${T_DT_STORE} d
-          WHERE ${dateFilter} ${storeFilter}
-            AND d.TRADE_CLASS_3 = '売上'
-          GROUP BY day_of_week
-          ORDER BY day_of_week
-        `, { callersRights: true })
+        if (hasProductFilter) {
+          rows = await querySnowflake(`
+            SELECT
+              DAYOFWEEK(d.BUSINESS_DATE) AS day_of_week,
+              SUM(d.TOTAL_SALES) AS total_sales,
+              SUM(d.RECEIPT_COUNT) AS transactions,
+              COUNT(DISTINCT d.MAJICA_NO) AS buyers
+            FROM ${T_DT_MEMBER_CAT} d
+            WHERE ${dateFilter} ${storeFilter} ${buildCatFilter()}
+            GROUP BY day_of_week
+            ORDER BY day_of_week
+          `, { callersRights: true })
+        } else {
+          rows = await querySnowflake(`
+            SELECT
+              DAYOFWEEK(d.BUSINESS_DATE) AS day_of_week,
+              SUM(d.TOTAL_SALES_AMOUNT) AS total_sales,
+              SUM(d.RECEIPT_COUNT) AS transactions,
+              SUM(d.MEMBER_COUNT) AS buyers
+            FROM ${T_DT_STORE} d
+            WHERE ${dateFilter} ${storeFilter}
+              AND d.TRADE_CLASS_3 = '売上'
+            GROUP BY day_of_week
+            ORDER BY day_of_week
+          `, { callersRights: true })
+        }
         break
 
       case "trial_repeat":

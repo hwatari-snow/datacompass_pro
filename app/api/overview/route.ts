@@ -5,7 +5,8 @@ import { DB } from "@/lib/constants"
 export const dynamic = "force-dynamic"
 
 const STORE_DT = `${DB}.ANALYTICS.DT_DAILY_STORE_SUMMARY`
-const MAJOR_DT = `${DB}.ANALYTICS.DT_DAILY_MAJOR_STORE`
+// 大分類(MD)シェアは MIDDLE_STORE DT を MD 単位に集約して算出（専用 MAJOR_STORE DT は廃止）
+const MIDDLE_DT = `${DB}.ANALYTICS.DT_DAILY_MIDDLE_STORE`
 
 /** GET /api/overview — executive summary KPIs, 12-month trend, category share, data freshness. */
 export async function GET() {
@@ -45,10 +46,10 @@ export async function GET() {
         { callersRights: true },
       ),
       querySnowflake(
-        `WITH mx AS (SELECT MAX(BUSINESS_DATE) md FROM ${MAJOR_DT}),
+        `WITH mx AS (SELECT MAX(BUSINESS_DATE) md FROM ${MIDDLE_DT}),
          agg AS (
            SELECT MD_NAME AS name, SUM(TOTAL_SALES_AMOUNT) AS sales
-           FROM ${MAJOR_DT}, mx
+           FROM ${MIDDLE_DT}, mx
            WHERE BUSINESS_DATE BETWEEN DATE_TRUNC('MONTH', mx.md) AND mx.md
              AND TRADE_CLASS_3 = '売上'
            GROUP BY 1
