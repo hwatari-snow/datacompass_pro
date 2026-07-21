@@ -14,6 +14,7 @@ import {
 import type { AnalysisConditions, MemberFacets } from "@/lib/types"
 import type { SelectorRow } from "@/components/selector"
 import { useConditions } from "@/components/conditions-context"
+import { DateField } from "@/components/date-field"
 import { STEP_COLORS, PALETTE } from "@/lib/palette"
 
 const STEPS = [
@@ -37,7 +38,7 @@ const PRODUCT_MODES = [
   { key: "major", label: "大分類" },
   { key: "middle", label: "中分類" },
   { key: "minor", label: "小分類" },
-  { key: "maker", label: "メーカー" },
+  { key: "sub", label: "細分類" },
   { key: "jan", label: "JAN" },
 ] as const
 
@@ -51,8 +52,8 @@ export default function ConditionsPage() {
     major: { code: string; name: string; md_code: string }[]
     middle: { code: string; name: string; major_code: string }[]
     minor: { code: string; name: string; middle_code: string }[]
-    makers: { code: string; name: string }[]
-  }>({ md: [], major: [], middle: [], minor: [], makers: [] })
+    sub: { code: string; name: string; minor_code: string }[]
+  }>({ md: [], major: [], middle: [], minor: [], sub: [] })
   const [facets, setFacets] = React.useState<MemberFacets>({ genders: [], age_groups: [], ranks: [] })
   const [saved, setSaved] = React.useState<SavedCondition[]>([])
   const [saveName, setSaveName] = React.useState("")
@@ -76,22 +77,23 @@ export default function ConditionsPage() {
 
   const upd = (patch: Partial<AnalysisConditions>) => setCond((prev) => ({ ...prev, ...patch }))
   const updMember = (patch: Partial<AnalysisConditions["member"]>) => setCond((prev) => ({ ...prev, member: { ...prev.member, ...patch } }))
-  const updMdCodes = (codes: string[]) => upd({ mdCodes: codes, majorCodes: [], middleCodes: [], minorCodes: [] })
-  const updMajorCodes = (codes: string[]) => upd({ majorCodes: codes, middleCodes: [], minorCodes: [] })
-  const updMiddleCodes = (codes: string[]) => upd({ middleCodes: codes, minorCodes: [] })
+  const updMdCodes = (codes: string[]) => upd({ mdCodes: codes, majorCodes: [], middleCodes: [], minorCodes: [], subCodes: [] })
+  const updMajorCodes = (codes: string[]) => upd({ majorCodes: codes, middleCodes: [], minorCodes: [], subCodes: [] })
+  const updMiddleCodes = (codes: string[]) => upd({ middleCodes: codes, minorCodes: [], subCodes: [] })
+  const updMinorCodes = (codes: string[]) => upd({ minorCodes: codes, subCodes: [] })
 
   const toggle = (sec: number) => setOpenSection(openSection === sec ? 0 : sec)
 
   const dateOk = !!(cond.baseStart && cond.baseEnd)
   const storeOk = cond.storeCodes.length > 0
-  const prodOk = cond.mdCodes.length > 0 || cond.majorCodes.length > 0 || cond.middleCodes.length > 0 || cond.minorCodes.length > 0 || cond.makerCodes.length > 0 || cond.itemCodes.length > 0
+  const prodOk = cond.mdCodes.length > 0 || cond.majorCodes.length > 0 || cond.middleCodes.length > 0 || cond.minorCodes.length > 0 || cond.subCodes.length > 0 || cond.itemCodes.length > 0
   const dateSummary = dateOk ? `${cond.baseStart} 〜 ${cond.baseEnd}${cond.compareEnabled ? " (比較あり)" : ""}` : "未設定"
   const storeSummary = storeOk ? `${cond.storeCodes.length}店舗` : "全店舗"
   const prodSummary = prodOk ? [
     cond.majorCodes.length && `大分類${cond.majorCodes.length}`,
     cond.middleCodes.length && `中分類${cond.middleCodes.length}`,
     cond.minorCodes.length && `小分類${cond.minorCodes.length}`,
-    cond.makerCodes.length && `メーカー${cond.makerCodes.length}`,
+    cond.subCodes.length && `細分類${cond.subCodes.length}`,
     cond.itemCodes.length && `JAN${cond.itemCodes.length}`,
   ].filter(Boolean).join(" / ") : "全商品"
   const memberSummary = cond.member.enabled ? `${[cond.member.genders.length && "性別", cond.member.ageGroups.length && "年代", cond.member.ranks.length && "ランク"].filter(Boolean).length || 0}条件` : "条件なし"
@@ -145,9 +147,9 @@ export default function ConditionsPage() {
             <div className={s.dateSectionBody}>
               <div className={s.dateRangeRow}>
                 <span className={s.dateRangeLabel}>基準期間：</span>
-                <input type="date" className={s.dateInput} value={cond.baseStart} onChange={(e) => upd({ baseStart: e.target.value })} />
+                <DateField value={cond.baseStart} onChange={(v) => upd({ baseStart: v })} min="2023-05-01" max="2026-05-31" />
                 <span className={s.separator}>〜</span>
-                <input type="date" className={s.dateInput} value={cond.baseEnd} onChange={(e) => upd({ baseEnd: e.target.value })} />
+                <DateField value={cond.baseEnd} onChange={(v) => upd({ baseEnd: v })} min="2023-05-01" max="2026-05-31" />
               </div>
               <div className={`${s.dateRangeRow} ${!cond.compareEnabled ? s.compDisabled : ""}`}>
                 <span className={s.dateRangeLabel} style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -157,9 +159,9 @@ export default function ConditionsPage() {
                   </span>
                   比較期間：
                 </span>
-                <input type="date" className={s.dateInput} value={cond.compareStart ?? ""} onChange={(e) => upd({ compareStart: e.target.value })} />
+                <DateField value={cond.compareStart ?? ""} onChange={(v) => upd({ compareStart: v })} min="2023-05-01" max="2026-05-31" disabled={!cond.compareEnabled} allowClear />
                 <span className={s.separator}>〜</span>
-                <input type="date" className={s.dateInput} value={cond.compareEnd ?? ""} onChange={(e) => upd({ compareEnd: e.target.value })} />
+                <DateField value={cond.compareEnd ?? ""} onChange={(v) => upd({ compareEnd: v })} min="2023-05-01" max="2026-05-31" disabled={!cond.compareEnabled} allowClear />
               </div>
             </div>
           </div>
@@ -197,6 +199,7 @@ export default function ConditionsPage() {
               updMdCodes={updMdCodes}
               updMajorCodes={updMajorCodes}
               updMiddleCodes={updMiddleCodes}
+              updMinorCodes={updMinorCodes}
               upd={upd}
             />
           </div>
@@ -356,12 +359,13 @@ function StorePane({ stores, selected, onChange }: { stores: SelectorRow[]; sele
 }
 
 /* ============ Product Pane ============ */
-function ProductPane({ hierarchy, cond, updMdCodes, updMajorCodes, updMiddleCodes, upd }: {
-  hierarchy: { md: { code: string; name: string }[]; major: { code: string; name: string; md_code: string }[]; middle: { code: string; name: string; major_code: string }[]; minor: { code: string; name: string; middle_code: string }[]; makers: { code: string; name: string }[] }
+function ProductPane({ hierarchy, cond, updMdCodes, updMajorCodes, updMiddleCodes, updMinorCodes, upd }: {
+  hierarchy: { md: { code: string; name: string }[]; major: { code: string; name: string; md_code: string }[]; middle: { code: string; name: string; major_code: string }[]; minor: { code: string; name: string; middle_code: string }[]; sub: { code: string; name: string; minor_code: string }[] }
   cond: AnalysisConditions
   updMdCodes: (c: string[]) => void
   updMajorCodes: (c: string[]) => void
   updMiddleCodes: (c: string[]) => void
+  updMinorCodes: (c: string[]) => void
   upd: (p: Partial<AnalysisConditions>) => void
 }) {
   const [mode, setMode] = React.useState<string>("major")
@@ -369,12 +373,25 @@ function ProductPane({ hierarchy, cond, updMdCodes, updMajorCodes, updMiddleCode
 
   const options: { code: string; name: string }[] = React.useMemo(() => {
     let items: { code: string; name: string }[] = []
+    // Cascade parent selections down the hierarchy so each level's list is
+    // narrowed by ALL ancestor selections (not just its immediate parent).
+    const mdSet = cond.mdCodes.length ? new Set(cond.mdCodes) : null
+    const majorSet = cond.majorCodes.length
+      ? new Set(cond.majorCodes)
+      : (mdSet ? new Set(hierarchy.major.filter((m) => mdSet.has(m.md_code)).map((m) => m.code)) : null)
+    const middleSet = cond.middleCodes.length
+      ? new Set(cond.middleCodes)
+      : (majorSet ? new Set(hierarchy.middle.filter((m) => majorSet.has(m.major_code)).map((m) => m.code)) : null)
+    const minorSet = cond.minorCodes.length
+      ? new Set(cond.minorCodes)
+      : (middleSet ? new Set(hierarchy.minor.filter((m) => middleSet.has(m.middle_code)).map((m) => m.code)) : null)
+
     switch (mode) {
       case "md": items = hierarchy.md; break
-      case "major": items = cond.mdCodes.length ? hierarchy.major.filter((m) => cond.mdCodes.includes(m.md_code)) : hierarchy.major; break
-      case "middle": items = cond.majorCodes.length ? hierarchy.middle.filter((m) => cond.majorCodes.includes(m.major_code)) : hierarchy.middle; break
-      case "minor": items = cond.middleCodes.length ? hierarchy.minor.filter((m) => cond.middleCodes.includes(m.middle_code)) : hierarchy.minor; break
-      case "maker": items = hierarchy.makers; break
+      case "major": items = mdSet ? hierarchy.major.filter((m) => mdSet.has(m.md_code)) : hierarchy.major; break
+      case "middle": items = majorSet ? hierarchy.middle.filter((m) => majorSet.has(m.major_code)) : hierarchy.middle; break
+      case "minor": items = middleSet ? hierarchy.minor.filter((m) => middleSet.has(m.middle_code)) : hierarchy.minor; break
+      case "sub": items = minorSet ? hierarchy.sub.filter((m) => minorSet.has(m.minor_code)) : hierarchy.sub; break
       default: items = []
     }
     if (search) { const q = search.toLowerCase(); items = items.filter((i) => i.name.toLowerCase().includes(q) || i.code.toLowerCase().includes(q)) }
@@ -382,13 +399,13 @@ function ProductPane({ hierarchy, cond, updMdCodes, updMajorCodes, updMiddleCode
   }, [hierarchy, cond, mode, search])
 
   const selectedCodes = React.useMemo(() => {
-    switch (mode) { case "md": return cond.mdCodes; case "major": return cond.majorCodes; case "middle": return cond.middleCodes; case "minor": return cond.minorCodes; case "maker": return cond.makerCodes; default: return [] }
+    switch (mode) { case "md": return cond.mdCodes; case "major": return cond.majorCodes; case "middle": return cond.middleCodes; case "minor": return cond.minorCodes; case "sub": return cond.subCodes; default: return [] }
   }, [cond, mode])
 
   const toggleCode = (code: string) => {
     const has = selectedCodes.includes(code)
     const next = has ? selectedCodes.filter((c) => c !== code) : [...selectedCodes, code]
-    switch (mode) { case "md": updMdCodes(next); break; case "major": updMajorCodes(next); break; case "middle": updMiddleCodes(next); break; case "minor": upd({ minorCodes: next }); break; case "maker": upd({ makerCodes: next }); break }
+    switch (mode) { case "md": updMdCodes(next); break; case "major": updMajorCodes(next); break; case "middle": updMiddleCodes(next); break; case "minor": updMinorCodes(next); break; case "sub": upd({ subCodes: next }); break }
   }
 
   const selSet = new Set(selectedCodes)
@@ -402,13 +419,13 @@ function ProductPane({ hierarchy, cond, updMdCodes, updMajorCodes, updMiddleCode
           </button>
         ))}
         <div className={s.navDivider} />
-        <button className={s.paneNavBtn} style={{ color: "#dc2626", fontSize: 11 }} onClick={() => upd({ mdCodes: [], majorCodes: [], middleCodes: [], minorCodes: [], makerCodes: [], itemCodes: [] })}>選択リセット</button>
+        <button className={s.paneNavBtn} style={{ color: "#dc2626", fontSize: 11 }} onClick={() => upd({ mdCodes: [], majorCodes: [], middleCodes: [], minorCodes: [], subCodes: [], itemCodes: [] })}>選択リセット</button>
       </nav>
       <div className={s.paneMid}>
         <div className={s.panelHeader}><h3>{PRODUCT_MODES.find((m) => m.key === mode)?.label}一覧</h3><span className={s.count}>{options.length}項目</span></div>
         <div className={s.searchBar}><input className={s.searchInput} placeholder="検索..." value={search} onChange={(e) => setSearch(e.target.value)} /></div>
         {mode !== "jan" && (
-          <div className={s.actionBar}><button onClick={() => { const codes = options.map((o) => o.code); switch (mode) { case "major": updMajorCodes(codes); break; case "middle": updMiddleCodes(codes); break; case "minor": upd({ minorCodes: codes }); break; case "maker": upd({ makerCodes: codes }); break } }}>表示中を全選択</button></div>
+          <div className={s.actionBar}><button onClick={() => { const codes = options.map((o) => o.code); switch (mode) { case "major": updMajorCodes(codes); break; case "middle": updMiddleCodes(codes); break; case "minor": updMinorCodes(codes); break; case "sub": upd({ subCodes: codes }); break } }}>表示中を全選択</button></div>
         )}
         <div className={s.panelBody}>
           {mode === "jan" ? (

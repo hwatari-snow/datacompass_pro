@@ -20,7 +20,7 @@ function getAccountUrl(): string {
 
 /**
  * POST /api/analyst
- * Body: { message: string, threadId?: string, parentMessageId?: string }
+ * Body: { message: string, threadId?: string, parentMessageId?: string, conditionsContext?: string, screenContext?: string }
  *
  * Calls Cortex Agent REST API to leverage the deployed DATACOMPASS_AGENT
  * which has cortex_analyst_text_to_sql tool with semantic view.
@@ -28,10 +28,12 @@ function getAccountUrl(): string {
 export async function POST(request: Request) {
   try {
     const body = await request.json()
-    const { message, threadId, parentMessageId } = body as {
+    const { message, threadId, parentMessageId, conditionsContext, screenContext } = body as {
       message: string
       threadId?: string
       parentMessageId?: string
+      conditionsContext?: string
+      screenContext?: string
     }
 
     if (!message?.trim()) {
@@ -48,8 +50,10 @@ export async function POST(request: Request) {
 
     // Build the request body for the Cortex Agent API
     // Use the object-based endpoint so the Agent's configured tools/tool_resources are used
+    const promptParts = [conditionsContext, screenContext, message].filter(Boolean)
+
     const agentBody: Record<string, unknown> = {
-      messages: [{ role: "user", content: [{ type: "text", text: message }] }],
+      messages: [{ role: "user", content: [{ type: "text", text: promptParts.join("\n\n") }] }],
       stream: false,
     }
 

@@ -31,7 +31,6 @@ export function FilterBar({ onTogglePanel, panelOpen }: FilterBarProps) {
     fmt(conditions.majorCodes, conditions.majorNames, "大")
     fmt(conditions.middleCodes, conditions.middleNames, "中")
     fmt(conditions.minorCodes, conditions.minorNames, "小")
-    fmt(conditions.makerCodes, conditions.makerNames, "メーカー")
     if (conditions.itemCodes?.length) parts.push(`${conditions.itemCodes.length}商品`)
     return parts.length ? parts.join(" ") : "全商品"
   })()

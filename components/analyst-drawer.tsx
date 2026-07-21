@@ -3,27 +3,25 @@
 import { createContext, useContext, useState, useCallback, useRef, useEffect } from "react"
 import { X, Sparkles, Send, Trash2, ChevronDown, Database, MessageSquare } from "lucide-react"
 import ReactMarkdown from "react-markdown"
-
-interface Message {
-  id: string
-  role: "user" | "assistant"
-  content: string
-  sql?: string
-  results?: Record<string, unknown>[]
-  error?: string
-  timestamp: number
-}
+import { useAnalystChat } from "@/lib/use-analyst-chat"
+import type { ChatMessage } from "@/lib/types"
 
 interface AnalystDrawerContextValue {
   open: boolean
   setOpen: (v: boolean) => void
   toggle: () => void
+  openWithPrompt: (prompt: string, screenContext?: string) => void
+  pendingPrompt: { prompt: string; screenContext?: string } | null
+  clearPendingPrompt: () => void
 }
 
 const AnalystDrawerContext = createContext<AnalystDrawerContextValue>({
   open: false,
   setOpen: () => {},
   toggle: () => {},
+  openWithPrompt: () => {},
+  pendingPrompt: null,
+  clearPendingPrompt: () => {},
 })
 
 export function useAnalystDrawer() {
@@ -32,24 +30,32 @@ export function useAnalystDrawer() {
 
 export function AnalystDrawerProvider({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false)
+  const [pendingPrompt, setPendingPrompt] = useState<{ prompt: string; screenContext?: string } | null>(null)
   const toggle = useCallback(() => setOpen((v) => !v), [])
+  const openWithPrompt = useCallback((prompt: string, screenContext?: string) => {
+    setPendingPrompt({ prompt, screenContext })
+    setOpen(true)
+  }, [])
   return (
-    <AnalystDrawerContext.Provider value={{ open, setOpen, toggle }}>
+    <AnalystDrawerContext.Provider value={{ open, setOpen, toggle, openWithPrompt, pendingPrompt, clearPendingPrompt: () => setPendingPrompt(null) }}>
       {children}
     </AnalystDrawerContext.Provider>
   )
 }
-
 export function AnalystDrawer() {
-  const { open, setOpen } = useAnalystDrawer()
-  const [messages, setMessages] = useState<Message[]>([])
-  const [input, setInput] = useState("")
-  const [loading, setLoading] = useState(false)
+  const { open, setOpen, pendingPrompt, clearPendingPrompt } = useAnalystDrawer()
+  const { messages, input, setInput, loading, send, clear, useConditionContext, setUseConditionContext } = useAnalystChat()
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [messages, loading])
+
+  useEffect(() => {
+    if (!pendingPrompt) return
+    setInput(pendingPrompt.prompt)
+    clearPendingPrompt?.()
+  }, [pendingPrompt, setInput, clearPendingPrompt])
 
   const SUGGESTED = [
     { icon: "📊", text: "売上上位10商品を教えて" },
@@ -59,42 +65,6 @@ export function AnalystDrawer() {
     { icon: "🔄", text: "リピート率が高い商品TOP10" },
     { icon: "🏪", text: "店舗別の客単価を比較して" },
   ]
-
-  const send = async (text: string) => {
-    if (!text.trim() || loading) return
-    const userMsg: Message = { id: `u${Date.now()}`, role: "user", content: text, timestamp: Date.now() }
-    setMessages((prev) => [...prev, userMsg])
-    setInput("")
-    setLoading(true)
-
-    try {
-      const res = await fetch("/api/analyst", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text }),
-      })
-      const json = await res.json()
-      const assistantMsg: Message = {
-        id: `a${Date.now()}`,
-        role: "assistant",
-        content: json.explanation || (json.error ? "" : "回答を生成できませんでした"),
-        sql: json.sql,
-        results: json.results,
-        error: json.error,
-        timestamp: Date.now(),
-      }
-      setMessages((prev) => [...prev, assistantMsg])
-    } catch (e) {
-      setMessages((prev) => [
-        ...prev,
-        { id: `e${Date.now()}`, role: "assistant", content: "", error: e instanceof Error ? e.message : "エラー", timestamp: Date.now() },
-      ])
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const clearChat = () => setMessages([])
 
   if (!open) return null
 
@@ -124,7 +94,7 @@ export function AnalystDrawer() {
           <div className="flex items-center gap-1">
             {messages.length > 0 && (
               <button
-                onClick={clearChat}
+                onClick={clear}
                 className="rounded-md p-1.5 transition-colors hover:bg-[var(--accent)]"
                 style={{ color: "var(--muted-foreground)" }}
                 title="会話をクリア"
@@ -171,7 +141,7 @@ export function AnalystDrawer() {
             </div>
           ) : (
             <div className="p-5 space-y-5">
-              {messages.map((msg) => (
+              {messages.map((msg: ChatMessage) => (
                 <div key={msg.id} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
                   {msg.role === "assistant" && (
                     <div className="mr-2 mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-purple-500">
@@ -302,7 +272,7 @@ export function AnalystDrawer() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(input) }
+                  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(input, { context: pendingPrompt?.screenContext }) }
                 }}
                 placeholder="ID-POSデータについて質問..."
                 rows={1}
@@ -317,13 +287,22 @@ export function AnalystDrawer() {
               />
             </div>
             <button
-              onClick={() => send(input)}
+              onClick={() => send(input, { context: pendingPrompt?.screenContext })}
               disabled={loading || !input.trim()}
               className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl transition-all disabled:opacity-30"
               style={{ backgroundColor: "var(--brand-primary)", color: "white" }}
             >
               <Send className="h-4 w-4" />
             </button>
+          </div>
+          <div className="mt-2 flex items-center justify-between gap-3">
+            <label className="flex items-center gap-2 text-[10px]" style={{ color: "var(--muted-foreground)" }}>
+              <input type="checkbox" checked={useConditionContext} onChange={(e) => setUseConditionContext(e.target.checked)} />
+              現在の分析条件を反映
+            </label>
+            <span className="text-[10px]" style={{ color: "var(--muted-foreground)" }}>
+              条件反映は自然言語コンテキストであり、厳密フィルタではありません
+            </span>
           </div>
           <p className="mt-2 text-center text-[10px]" style={{ color: "var(--muted-foreground)" }}>
             Powered by Snowflake Cortex AI · mistral-large2

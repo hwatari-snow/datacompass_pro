@@ -56,19 +56,30 @@ export interface AnalysisConditions {
   majorCodes: string[]    // 大分類コードで絞り込み
   middleCodes: string[]   // 中分類コードで絞り込み
   minorCodes: string[]    // 小分類コードで絞り込み
-  makerCodes: string[]    // メーカーコードで絞り込み
+  subCodes: string[]      // 細分類コードで絞り込み
   mdNames?: string[]
   majorNames?: string[]
   middleNames?: string[]
   minorNames?: string[]
-  makerNames?: string[]
+  subNames?: string[]
   storeNames?: string[]
   member: MemberCondition
 }
 
+export interface ChatMessage {
+  id: string
+  role: "user" | "assistant"
+  content: string
+  sql?: string
+  results?: Record<string, unknown>[]
+  totalRows?: number
+  error?: string
+  timestamp: number
+}
+
 // ===== ABC結果 =====
 export type AbcCriteria = "amount" | "quantity" | "receipt"
-export type ProductUnit = "item" | "md" | "major" | "middle" | "minor" | "brand" | "maker"
+export type ProductUnit = "item" | "md" | "major" | "middle" | "minor" | "sub"
 export type StoreUnit = "store" | "area" | "business_type" | "corporation" | "prefecture"
 
 export interface AbcRow {
@@ -77,6 +88,7 @@ export interface AbcRow {
   major_name?: string
   middle_name?: string
   minor_name?: string
+  sub_name?: string
   brand_name?: string
   area_name?: string
   business_type_name?: string

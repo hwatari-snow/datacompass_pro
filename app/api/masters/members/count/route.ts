@@ -4,6 +4,7 @@ import { NextRequest } from "next/server"
 export const dynamic = "force-dynamic"
 
 const T_MEMBERS = "PPIH_FULL_DB.MASTER.DATAMART_COMMON_MEMBERS"
+const lit = (v: string) => `'${String(v).replace(/'/g, "''")}'`
 
 export async function POST(req: NextRequest) {
   try {
@@ -16,13 +17,13 @@ export async function POST(req: NextRequest) {
 
     const conditions: string[] = []
     if (genders && genders.length > 0) {
-      conditions.push(`GENDER IN (${genders.map((g) => `'${g}'`).join(",")})`)
+      conditions.push(`GENDER IN (${genders.map(lit).join(",")})`)
     }
     if (ageGroups && ageGroups.length > 0) {
-      conditions.push(`AGE_GROUP IN (${ageGroups.map((a) => `'${a}'`).join(",")})`)
+      conditions.push(`AGE_GROUP IN (${ageGroups.map(lit).join(",")})`)
     }
     if (ranks && ranks.length > 0) {
-      conditions.push(`MEMBER_RANK IN (${ranks.map((r) => `'${r}'`).join(",")})`)
+      conditions.push(`MEMBER_RANK IN (${ranks.map(lit).join(",")})`)
     }
 
     const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : ""

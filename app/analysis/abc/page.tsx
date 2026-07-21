@@ -1,6 +1,7 @@
 "use client"
 import * as React from "react"
 import Link from "next/link"
+import { BarChart3, Download } from "lucide-react"
 import {
   ComposedChart,
   Bar,
@@ -21,15 +22,15 @@ import { yen, num, pct, compact, delta } from "@/lib/format"
 import { useConditions } from "@/components/conditions-context"
 import type { AbcResult, AbcRow, AbcCriteria, ProductUnit, StoreUnit } from "@/lib/types"
 import { ABC_COLORS, PALETTE } from "@/lib/palette"
+import { Segmented as Toggle } from "@/components/ui/segmented"
 
 const PRODUCT_UNITS: { key: ProductUnit; label: string }[] = [
   { key: "item", label: "商品" },
-  { key: "md", label: "MD" },
-  { key: "major", label: "大分類" },
-  { key: "middle", label: "中分類" },
+  { key: "sub", label: "細分類" },
   { key: "minor", label: "小分類" },
-  { key: "brand", label: "ブランド" },
-  { key: "maker", label: "メーカー" },
+  { key: "middle", label: "中分類" },
+  { key: "major", label: "大分類" },
+  { key: "md", label: "MD" },
 ]
 const STORE_UNITS: { key: StoreUnit; label: string }[] = [
   { key: "store", label: "店舗" },
@@ -43,25 +44,6 @@ const CRITERIA: { key: AbcCriteria; label: string }[] = [
   { key: "quantity", label: "売上数量" },
   { key: "receipt", label: "レシート数" },
 ]
-
-function Toggle<T extends string>({ options, value, onChange, variant = "blue" }: { options: { key: T; label: string }[]; value: T; onChange: (v: T) => void; variant?: "blue" | "red" }) {
-  const activeStyle = variant === "red" ? { background: PALETTE.accent, borderColor: PALETTE.accent, color: "#fff" } : { background: PALETTE.primary, borderColor: PALETTE.primary, color: "#fff" }
-  return (
-    <div className="inline-flex rounded-md border overflow-hidden">
-      {options.map((o) => (
-        <button
-          key={o.key}
-          type="button"
-          onClick={() => onChange(o.key)}
-          style={value === o.key ? activeStyle : undefined}
-          className={cn("px-3 py-1.5 text-sm font-medium border-r last:border-r-0 transition-colors", value !== o.key && "bg-background hover:bg-accent text-foreground")}
-        >
-          {o.label}
-        </button>
-      ))}
-    </div>
-  )
-}
 
 function Kpi({ label, value, prev, fmt }: { label: string; value: number; prev?: number; fmt: (n: number) => string }) {
   const d = prev != null ? delta(value, prev) : null
@@ -160,14 +142,15 @@ export default function AbcPage() {
   }
 
   return (
-    <main className="w-full max-w-7xl mx-auto py-8 px-4">
+    <main className="w-full">
       <div className="flex items-center justify-between mb-1">
-        <h1 className="text-xl font-semibold">ABC分析結果</h1>
+        <h1 className="text-2xl font-bold flex items-center gap-2"><BarChart3 className="h-6 w-6" style={{ color: "var(--brand-primary)" }} />ABC分析結果</h1>
         <div className="flex gap-2">
           <Button variant="outline" asChild>
             <Link href="/analysis/conditions">条件を変更</Link>
           </Button>
           <Button variant="outline" onClick={exportExcel} disabled={rows.length === 0}>
+            <Download className="h-4 w-4" />
             Excel出力
           </Button>
         </div>
@@ -184,7 +167,7 @@ export default function AbcPage() {
             if (conditions.majorCodes?.length) parts.push(`大分類${conditions.majorCodes.length}`)
             if (conditions.middleCodes?.length) parts.push(`中分類${conditions.middleCodes.length}`)
             if (conditions.minorCodes?.length) parts.push(`小分類${conditions.minorCodes.length}`)
-            if (conditions.makerCodes?.length) parts.push(`メーカー${conditions.makerCodes.length}`)
+            if (conditions.subCodes?.length) parts.push(`細分類${conditions.subCodes.length}`)
             if (conditions.itemCodes?.length) parts.push(`JAN${conditions.itemCodes.length}`)
             return parts.length ? parts.join("/") : "全商品"
           })()}
@@ -224,14 +207,20 @@ export default function AbcPage() {
 
       {/* コントロール */}
       <div className="flex flex-wrap items-center gap-3 mb-4">
-        <Toggle options={[{ key: "product" as const, label: "商品別ABC" }, { key: "store" as const, label: "店舗別ABC" }]} value={tab} onChange={setTab} />
-        {tab === "product" ? (
-          <Toggle options={PRODUCT_UNITS} value={productUnit} onChange={setProductUnit} />
-        ) : (
-          <Toggle options={STORE_UNITS} value={storeUnit} onChange={setStoreUnit} />
-        )}
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">集計単位</span>
+          <Toggle options={[{ key: "product" as const, label: "商品別ABC" }, { key: "store" as const, label: "店舗別ABC" }]} value={tab} onChange={setTab} />
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">集計軸</span>
+          {tab === "product" ? (
+            <Toggle options={PRODUCT_UNITS} value={productUnit} onChange={setProductUnit} />
+          ) : (
+            <Toggle options={STORE_UNITS} value={storeUnit} onChange={setStoreUnit} />
+          )}
+        </div>
         <div className="ml-auto flex items-center gap-2">
-          <span className="text-xs text-muted-foreground">分析基準</span>
+          <span className="text-xs text-muted-foreground">表示指標</span>
           <Toggle options={CRITERIA} value={criteria} onChange={setCriteria} variant="red" />
         </div>
       </div>
@@ -288,7 +277,7 @@ export default function AbcPage() {
                     <tr className="text-left text-muted-foreground">
                       <th className="py-2 pr-3">順位</th>
                       <th className="py-2 pr-3">名称</th>
-                      {tab === "product" && unit === "item" && <th className="py-2 pr-3">カテゴリ</th>}
+                      {tab === "product" && (unit === "item" || unit === "sub") && <th className="py-2 pr-3">カテゴリ</th>}
                       <th className="py-2 pr-3">ABC</th>
                       <th className="py-2 pr-3 text-right">売上金額</th>
                       <th className="py-2 pr-3 text-right">数量</th>
@@ -304,6 +293,9 @@ export default function AbcPage() {
                         <td className="py-1.5 pr-3">{r.name}</td>
                         {tab === "product" && unit === "item" && (
                           <td className="py-1.5 pr-3 text-xs text-muted-foreground">{r.major_name} / {r.brand_name}</td>
+                        )}
+                        {tab === "product" && unit === "sub" && (
+                          <td className="py-1.5 pr-3 text-xs text-muted-foreground">{r.middle_name} / {r.minor_name}</td>
                         )}
                         <td className="py-1.5 pr-3">
                           <span className="px-1.5 py-0.5 rounded text-xs font-semibold text-white" style={{ background: ABC_COLORS[r.abc_class] }}>

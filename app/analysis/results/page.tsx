@@ -7,6 +7,10 @@ import {
   ResponsiveContainer, ScatterChart, Scatter, ZAxis,
 } from "recharts"
 import { useConditions } from "@/components/conditions-context"
+import { Segmented } from "@/components/ui/segmented"
+import { Button } from "@/components/ui/button"
+import Link from "next/link"
+import { Users, Download } from "lucide-react"
 import s from "./results.module.css"
 import { CHART_COLORS, GENDER, SEG_COLORS as SEG, SEMANTIC } from "@/lib/palette"
 
@@ -17,7 +21,7 @@ const DAY_NAMES = ["日", "月", "火", "水", "木", "金", "土"]
 
 type TabType = "age_gender" | "area" | "behavior" | "trial_repeat"
 type ViewMode = "gender" | "age" | "age_gender"
-type MetricKey = "buyer_share" | "buyers" | "purchase_rate" | "repeat_rate" | "avg_spend" | "avg_frequency"
+type MetricKey = "buyer_share" | "buyers" | "repeat_rate" | "avg_spend" | "avg_frequency"
 
 const TABS: { id: TabType; label: string }[] = [
   { id: "age_gender", label: "① 性年代別分析" },
@@ -29,7 +33,6 @@ const TABS: { id: TabType; label: string }[] = [
 const METRICS: { key: MetricKey; label: string; format: (v: number) => string }[] = [
   { key: "buyer_share", label: "購入者構成比", format: (v) => `${v}%` },
   { key: "buyers", label: "購入者数", format: (v) => v.toLocaleString() },
-  { key: "purchase_rate", label: "購入率", format: (v) => `${v}%` },
   { key: "repeat_rate", label: "リピート率", format: (v) => `${v}%` },
   { key: "avg_spend", label: "平均購入金額", format: (v) => `¥${v.toLocaleString()}` },
   { key: "avg_frequency", label: "平均購入回数", format: (v) => `${v}回` },
@@ -95,11 +98,51 @@ export default function ResultsPage() {
       .finally(() => setLoading(false))
   }, [tab, baseParams])
 
+  const activeCount = tab === "age_gender" ? ageData.length : tab === "area" ? areaData.length : tab === "behavior" ? behaviorData.length : freqData.length
+
+  const exportExcel = async () => {
+    if (activeCount === 0) return
+    const XLSX = await import("xlsx")
+    let header: (string | number)[] = []
+    let aoa: (string | number)[][] = []
+    let sheetName = "属性分析"
+    if (tab === "age_gender") {
+      sheetName = "性年代別"
+      header = ["年代", "性別", "購入者数", "売上金額", "平均購入金額", "平均購入回数", "リピーター数"]
+      aoa = ageData.map((r) => [r.AGE_GROUP, r.GENDER, r.BUYERS, r.TOTAL_SALES, r.AVG_SPEND, r.AVG_FREQUENCY, r.REPEATERS])
+    } else if (tab === "area") {
+      sheetName = "エリア別"
+      header = ["エリア", "店舗数", "売上金額", "取引件数", "購入者数", "平均客単価"]
+      aoa = areaData.map((r) => [r.AREA_NAME, r.STORE_COUNT, r.TOTAL_SALES, r.TRANSACTIONS, r.BUYERS, r.AVG_BASKET])
+    } else if (tab === "behavior") {
+      sheetName = "曜日別"
+      header = ["曜日", "取引件数", "売上金額", "購入者数"]
+      aoa = behaviorData.map((r) => [`${DAY_NAMES[r.DAY_OF_WEEK] ?? r.DAY_OF_WEEK}曜日`, r.TRANSACTIONS, r.TOTAL_SALES, r.BUYERS])
+    } else {
+      sheetName = "購入回数分布"
+      header = ["購入回数", "購入者数", "売上金額", "構成比%", "売上構成比%"]
+      aoa = freqData.map((r) => [r.COUNT, r.BUYERS, r.SALES, r.SHARE, r.SALES_SHARE])
+    }
+    const ws = XLSX.utils.aoa_to_sheet([header, ...aoa])
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, sheetName)
+    XLSX.writeFile(wb, `attribute_${tab}.xlsx`)
+  }
+
   return (
-    <main className="w-full py-8 px-6">
+    <main className="w-full">
       {/* Header — same style as ABC page */}
       <div className="flex items-center justify-between mb-1">
-        <h1 className="text-xl font-semibold">属性分析結果</h1>
+        <h1 className="text-2xl font-bold flex items-center gap-2"><Users className="h-6 w-6" style={{ color: "var(--brand-primary)" }} />属性分析結果</h1>
+        <div className="flex gap-2">
+          <Button variant="outline" asChild>
+            <Link href="/analysis/conditions">条件を変更</Link>
+          </Button>
+          <Button variant="outline" onClick={exportExcel} disabled={activeCount === 0}>
+            <Download className="h-4 w-4" />
+            Excel出力
+          </Button>
+        </div>
       </div>
       {conditions && (
         <p className="text-sm text-muted-foreground mb-6">
@@ -219,18 +262,54 @@ function AgeGenderTab({ data }: { data: AgeGenderRow[] }) {
     { key: "gender", label: "男女別" }, { key: "age", label: "年代別" }, { key: "age_gender", label: "男女年代別" },
   ]
 
+  // Detail table rows aggregated to match the selected viewMode
+  const tableRows = useMemo(() => {
+    const agg = (rows: AgeGenderRow[]) => {
+      const buyers = rows.reduce((acc, d) => acc + (d.BUYERS ?? 0), 0)
+      const repeaters = rows.reduce((acc, d) => acc + (d.REPEATERS ?? 0), 0)
+      const spendSum = rows.reduce((acc, d) => acc + (d.AVG_SPEND ?? 0) * (d.BUYERS ?? 0), 0)
+      const freqSum = rows.reduce((acc, d) => acc + (d.AVG_FREQUENCY ?? 0) * (d.BUYERS ?? 0), 0)
+      return {
+        buyers,
+        share: totalBuyers > 0 ? round1(buyers / totalBuyers * 100) : 0,
+        repeatRate: buyers > 0 ? round1(repeaters / buyers * 100) : 0,
+        avgSpend: buyers > 0 ? Math.round(spendSum / buyers) : 0,
+        avgFreq: buyers > 0 ? round1(freqSum / buyers) : 0,
+      }
+    }
+    if (viewMode === "age_gender") {
+      return data.map((row) => ({
+        ageLabel: row.AGE_GROUP,
+        gender: row.GENDER,
+        ...agg([row]),
+      }))
+    }
+    if (viewMode === "age") {
+      return ageBins.map((ag) => ({
+        ageLabel: ag,
+        gender: undefined as string | undefined,
+        ...agg(data.filter((d) => d.AGE_GROUP === ag)),
+      }))
+    }
+    return ["男性", "女性"].map((g) => ({
+      ageLabel: g,
+      gender: undefined as string | undefined,
+      ...agg(data.filter((d) => d.GENDER === g)),
+    }))
+  }, [data, viewMode, totalBuyers, ageBins])
+
   return (
     <div>
       <div className={s.sectionTitle}><span className={s.dot} />属性分析</div>
-      <div className={s.toggleRow}>
-        {VIEW_MODES.map((v) => (
-          <button key={v.key} className={`${s.toggleBtn} ${viewMode === v.key ? s.active : ""}`} onClick={() => setViewMode(v.key)}>{v.label}</button>
-        ))}
-      </div>
-      <div className={s.metricSelector}>
-        {METRICS.map((mt) => (
-          <button key={mt.key} className={`${s.metricBtn} ${metric === mt.key ? s.active : ""}`} onClick={() => setMetric(mt.key)}>{mt.label}</button>
-        ))}
+      <div className="flex flex-wrap items-center gap-3 mb-4">
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">集計軸</span>
+          <Segmented options={VIEW_MODES} value={viewMode} onChange={setViewMode} />
+        </div>
+        <div className="ml-auto flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">表示指標</span>
+          <Segmented options={METRICS.map((mt) => ({ key: mt.key, label: mt.label }))} value={metric} onChange={setMetric} variant="red" />
+        </div>
       </div>
       <div className={s.card}>
         <div className={s.cardTitle}>{m.label}（{VIEW_MODES.find((v) => v.key === viewMode)?.label}）</div>
@@ -277,26 +356,22 @@ function AgeGenderTab({ data }: { data: AgeGenderRow[] }) {
         <div className={s.cardTitle}>{VIEW_MODES.find((v) => v.key === viewMode)?.label} 詳細テーブル</div>
         <table className={s.dataTable}>
           <thead><tr>
-            <th>年代</th>{viewMode === "age_gender" && <th>性別</th>}
+            <th>{viewMode === "gender" ? "性別" : "年代"}</th>{viewMode === "age_gender" && <th>性別</th>}
             <th className={s.num}>構成比</th><th className={s.num}>購入者数</th>
             <th className={s.num}>リピート率</th><th className={s.num}>平均金額</th><th className={s.num}>平均回数</th>
           </tr></thead>
           <tbody>
-            {data.map((row, i) => {
-              const share = totalBuyers > 0 ? round1(row.BUYERS / totalBuyers * 100) : 0
-              const rr = row.BUYERS > 0 ? round1(row.REPEATERS / row.BUYERS * 100) : 0
-              return (
-                <tr key={i}>
-                  <td style={{ fontWeight: 600 }}>{row.AGE_GROUP}</td>
-                  {viewMode === "age_gender" && <td style={{ color: row.GENDER === "男性" ? COLORS.male : COLORS.female }}>{row.GENDER}</td>}
-                  <td className={s.num}>{share}%</td>
-                  <td className={s.num}>{row.BUYERS?.toLocaleString()}</td>
-                  <td className={s.num}>{rr}%</td>
-                  <td className={s.num}>¥{row.AVG_SPEND?.toLocaleString()}</td>
-                  <td className={s.num}>{row.AVG_FREQUENCY}</td>
-                </tr>
-              )
-            })}
+            {tableRows.map((row, i) => (
+              <tr key={i}>
+                <td style={{ fontWeight: 600 }}>{row.ageLabel}</td>
+                {viewMode === "age_gender" && <td style={{ color: row.gender === "男性" ? COLORS.male : COLORS.female }}>{row.gender}</td>}
+                <td className={s.num}>{row.share}%</td>
+                <td className={s.num}>{row.buyers.toLocaleString()}</td>
+                <td className={s.num}>{row.repeatRate}%</td>
+                <td className={s.num}>¥{row.avgSpend.toLocaleString()}</td>
+                <td className={s.num}>{row.avgFreq}</td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
@@ -320,10 +395,9 @@ function AreaTab({ data }: { data: AreaRow[] }) {
   return (
     <div>
       <div className={s.sectionTitle}><span className={s.dot} style={{ background: CHART_COLORS[1] }} />エリア別分析</div>
-      <div className={s.metricSelector}>
-        {areaMetrics.map((mt) => (
-          <button key={mt.key} className={`${s.metricBtn} ${metric === mt.key ? s.active : ""}`} onClick={() => setMetric(mt.key)}>{mt.label}</button>
-        ))}
+      <div className="flex items-center gap-2 mb-4">
+        <span className="text-xs text-muted-foreground">表示指標</span>
+        <Segmented options={areaMetrics.map((mt) => ({ key: mt.key, label: mt.label }))} value={metric} onChange={setMetric} variant="red" />
       </div>
       <div className={s.card}>
         <div className={s.cardTitle}>エリア別 {am.label}</div>
@@ -386,10 +460,9 @@ function BehaviorTab({ data }: { data: BehaviorRow[] }) {
   return (
     <div>
       <div className={s.sectionTitle}><span className={s.dot} style={{ background: CHART_COLORS[7] }} />購買行動分析（曜日別）</div>
-      <div className={s.metricSelector}>
-        {bMetrics.map((mt) => (
-          <button key={mt.key} className={`${s.metricBtn} ${metric === mt.key ? s.active : ""}`} onClick={() => setMetric(mt.key)}>{mt.label}</button>
-        ))}
+      <div className="flex items-center gap-2 mb-4">
+        <span className="text-xs text-muted-foreground">表示指標</span>
+        <Segmented options={bMetrics.map((mt) => ({ key: mt.key, label: mt.label }))} value={metric} onChange={setMetric} variant="red" />
       </div>
       <div className={s.card}>
         <div className={s.cardTitle}>曜日別 {bm.label}</div>

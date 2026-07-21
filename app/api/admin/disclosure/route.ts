@@ -1,5 +1,6 @@
 import { querySnowflake } from "@/lib/snowflake"
 import { DB } from "@/lib/constants"
+import { isAdmin, forbidden } from "@/lib/auth"
 
 export const dynamic = "force-dynamic"
 
@@ -11,6 +12,7 @@ function roleName(accountId: string): string {
 // Returns: { categories: [{middle_code, middle_name}], enabled: ["0101", ...] }
 export async function GET(req: Request) {
   try {
+    if (!(await isAdmin())) return forbidden()
     const url = new URL(req.url)
     const accountId = url.searchParams.get("accountId") ?? url.searchParams.get("account") ?? ""
 

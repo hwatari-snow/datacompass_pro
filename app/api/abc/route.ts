@@ -28,6 +28,7 @@ function mapRow(r: Record<string, unknown>): AbcRow {
     major_name: r.MAJOR_NAME != null ? String(r.MAJOR_NAME) : undefined,
     middle_name: r.MIDDLE_NAME != null ? String(r.MIDDLE_NAME) : undefined,
     minor_name: r.MINOR_NAME != null ? String(r.MINOR_NAME) : undefined,
+    sub_name: r.SUB_NAME != null ? String(r.SUB_NAME) : undefined,
     brand_name: r.BRAND_NAME != null ? String(r.BRAND_NAME) : undefined,
     area_name: r.AREA_NAME != null ? String(r.AREA_NAME) : undefined,
     business_type_name: r.BUSINESS_TYPE_NAME != null ? String(r.BUSINESS_TYPE_NAME) : undefined,

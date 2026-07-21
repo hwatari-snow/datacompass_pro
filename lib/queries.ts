@@ -37,7 +37,6 @@ const T_DT_MIDDLE = `${DB}.ANALYTICS.DT_DAILY_MIDDLE_STORE`
 const T_DT_STORE = `${DB}.ANALYTICS.DT_DAILY_STORE_SUMMARY`
 const T_TRADE_AGG = `${DB}.ANALYTICS.IS_POS_TRANSACTION_AGG`
 const T_DT_AGG_MINOR = `${DB}.ANALYTICS.DT_AGG_DAILY_MINOR_STORE`
-const T_DT_AGG_MAKER = `${DB}.ANALYTICS.DT_AGG_DAILY_MAKER_STORE`
 
 // 集計単位 → (コード列, 名称列)
 const PRODUCT_UNIT_COLS: Record<ProductUnit, [string, string]> = {
@@ -46,8 +45,7 @@ const PRODUCT_UNIT_COLS: Record<ProductUnit, [string, string]> = {
   major: ["i.MAJOR_CODE", "MAX(i.MAJOR_NAME)"],
   middle: ["i.MIDDLE_CODE", "MAX(i.MIDDLE_NAME)"],
   minor: ["i.MINOR_CODE", "MAX(i.MINOR_NAME)"],
-  brand: ["i.BRAND_CODE", "MAX(i.BRAND_NAME)"],
-  maker: ["i.MAKER_CODE", "MAX(i.MAKER_NAME)"],
+  sub: ["i.SUB_CODE", "MAX(i.SUB_NAME)"],
 }
 const STORE_UNIT_COLS: Record<StoreUnit, [string, string]> = {
   store: ["t.STORE_CODE", "MAX(s.STORE_NAME)"],
@@ -80,7 +78,7 @@ function buildFilters(
   if (c.majorCodes && c.majorCodes.length > 0) parts.push(`i.MAJOR_CODE IN (${inListRaw(c.majorCodes)})`)
   if (c.middleCodes && c.middleCodes.length > 0) parts.push(`i.MIDDLE_CODE IN (${inListRaw(c.middleCodes)})`)
   if (c.minorCodes && c.minorCodes.length > 0) parts.push(`i.MINOR_CODE IN (${inListRaw(c.minorCodes)})`)
-  if (c.makerCodes && c.makerCodes.length > 0) parts.push(`i.MAKER_CODE IN (${inListRaw(c.makerCodes)})`)
+  if (c.subCodes && c.subCodes.length > 0) parts.push(`i.SUB_CODE IN (${inListRaw(c.subCodes)})`)
 
   if (c.member?.enabled) {
     // 属性で会員を絞る
@@ -126,19 +124,22 @@ export function buildAbcSummarySql(args: Omit<AbcQueryArgs, "criteria">): string
 
   // Use DT when possible (same condition as buildAbcSql)
   const memberEnabled = !!(conditions.member?.enabled)
-  const hasMinorFilter = !!(conditions.minorCodes?.length) || !!(conditions.makerCodes?.length)
+  const hasMinorFilter = !!(conditions.minorCodes?.length)
+  const hasSubFilter = !!(conditions.subCodes?.length)
   const canUseExistingDt = (unit === "md" || unit === "major" || unit === "middle" || (tab === "store"))
     && !hasMinorFilter
+    && !hasSubFilter
     && !memberEnabled
     && conditions.itemCodes.length === 0
 
-  // AGG DTs for minor/maker
-  const canUseAggDt = (unit === "minor" || unit === "maker")
+  // AGG DT for minor
+  const canUseAggDt = (unit === "minor")
     && !memberEnabled
+    && !hasSubFilter
     && conditions.itemCodes.length === 0
 
-  // AGG fact for item-level
-  const canUseAggFact = !memberEnabled && unit === "item" && conditions.itemCodes.length === 0
+  // AGG fact for item-level and sub-level (no dedicated sub DT)
+  const canUseAggFact = !memberEnabled && (unit === "item" || unit === "sub") && conditions.itemCodes.length === 0
 
   if (canUseExistingDt) {
     const isStoreTab = tab === "store"
@@ -175,8 +176,8 @@ WHERE ${filters.join("\n  AND ")}
   }
 
   if (canUseAggDt) {
-    const dtTable = unit === "minor" ? T_DT_AGG_MINOR : T_DT_AGG_MAKER
-    const aggCodeCol = unit === "minor" ? "d.MINOR_CODE" : "d.MAKER_CODE"
+    const dtTable = T_DT_AGG_MINOR
+    const aggCodeCol = "d.MINOR_CODE"
     const aggFilters: string[] = [`d.BUSINESS_DATE BETWEEN '${start}' AND '${end}'`, `d.TRADE_CLASS_3 = '売上'`]
     if (conditions.storeCodes.length > 0) aggFilters.push(`d.STORE_CODE IN (${inList(conditions.storeCodes)})`)
     if (conditions.mdCodes?.length) aggFilters.push(`d.MD_CODE IN (${inListRaw(conditions.mdCodes)})`)
@@ -200,13 +201,14 @@ WHERE ${aggFilters.join("\n  AND ")}
     if (conditions.majorCodes?.length) aggFilters.push(`i.MAJOR_CODE IN (${inListRaw(conditions.majorCodes)})`)
     if (conditions.middleCodes?.length) aggFilters.push(`i.MIDDLE_CODE IN (${inListRaw(conditions.middleCodes)})`)
     if (conditions.minorCodes?.length) aggFilters.push(`i.MINOR_CODE IN (${inListRaw(conditions.minorCodes)})`)
-    if (conditions.makerCodes?.length) aggFilters.push(`i.MAKER_CODE IN (${inListRaw(conditions.makerCodes)})`)
+    if (conditions.subCodes?.length) aggFilters.push(`i.SUB_CODE IN (${inListRaw(conditions.subCodes)})`)
+    const distinctCol = unit === "sub" ? "i.SUB_CODE" : "t.ITEM_CODE"
     return `
 SELECT
   SUM(t.ITEM_SALES_AMOUNT) AS total_sales,
   SUM(t.ITEM_SALES_QUANTITY) AS total_quantity,
   SUM(t.RECEIPT_COUNT) AS total_receipts,
-  COUNT(DISTINCT t.ITEM_CODE) AS total_units
+  COUNT(DISTINCT ${distinctCol}) AS total_units
 FROM ${T_TRADE_AGG} t
 JOIN ${T_ITEMS} i ON i.ITEM_CODE = t.ITEM_CODE
 WHERE ${aggFilters.join("\n  AND ")}
@@ -220,7 +222,8 @@ WHERE ${aggFilters.join("\n  AND ")}
   const needsItems = tab === "product"
     || !!(conditions.mdCodes?.length) || !!(conditions.majorCodes?.length)
     || !!(conditions.middleCodes?.length) || !!(conditions.minorCodes?.length)
-    || !!(conditions.makerCodes?.length) || !!(conditions.categoryClass)
+    || !!(conditions.subCodes?.length)
+    || !!(conditions.categoryClass)
   const needsStores = tab === "store" && unit !== "store"
 
   const filters: string[] = [`t.BUSINESS_DATE BETWEEN '${start}' AND '${end}'`, `t.TRADE_CLASS_3 = '売上'`]
@@ -232,7 +235,7 @@ WHERE ${aggFilters.join("\n  AND ")}
     if (conditions.majorCodes?.length) filters.push(`i.MAJOR_CODE IN (${inListRaw(conditions.majorCodes)})`)
     if (conditions.middleCodes?.length) filters.push(`i.MIDDLE_CODE IN (${inListRaw(conditions.middleCodes)})`)
     if (conditions.minorCodes?.length) filters.push(`i.MINOR_CODE IN (${inListRaw(conditions.minorCodes)})`)
-    if (conditions.makerCodes?.length) filters.push(`i.MAKER_CODE IN (${inListRaw(conditions.makerCodes)})`)
+    if (conditions.subCodes?.length) filters.push(`i.SUB_CODE IN (${inListRaw(conditions.subCodes)})`)
   }
   if (conditions.member?.enabled) {
     const mParts: string[] = []
@@ -267,11 +270,13 @@ export function buildAbcSql(args: AbcQueryArgs): string {
 
   // DT can be used when: no member filter, no individual JAN codes
   const memberEnabled = !!(conditions.member?.enabled)
-  const hasMinorFilter = !!(conditions.minorCodes?.length) || !!(conditions.makerCodes?.length)
+  const hasMinorFilter = !!(conditions.minorCodes?.length)
+  const hasSubFilter = !!(conditions.subCodes?.length)
 
   // Existing DTs: md/major/middle (on original fact, with store granularity)
   const canUseExistingDt = (unit === "md" || unit === "major" || unit === "middle")
     && !hasMinorFilter
+    && !hasSubFilter
     && !memberEnabled
     && conditions.itemCodes.length === 0
 
@@ -279,17 +284,18 @@ export function buildAbcSql(args: AbcQueryArgs): string {
     return buildAbcSqlFromDt(args)
   }
 
-  // Aggregated DTs: minor/maker (no member info, on AGG table)
-  const canUseAggDt = (unit === "minor" || unit === "maker")
+  // Aggregated DT: minor (no member info, on AGG table)
+  const canUseAggDt = (unit === "minor")
     && !memberEnabled
+    && !hasSubFilter
     && conditions.itemCodes.length === 0
 
   if (canUseAggDt) {
     return buildAbcSqlFromAggDt(args)
   }
 
-  // Item-level without member filter: use AGG fact table (17% smaller, no MAJICA_NO column)
-  if (!memberEnabled && unit === "item" && conditions.itemCodes.length === 0) {
+  // Item-level or sub-level without member filter: use AGG fact table (no dedicated sub DT)
+  if (!memberEnabled && (unit === "item" || unit === "sub") && conditions.itemCodes.length === 0) {
     return buildAbcSqlFromAggFact(args)
   }
 
@@ -379,19 +385,15 @@ LIMIT 5000
 `.trim()
 }
 
-/** AGG DT-based ABC SQL for minor/maker (no member info needed) */
+/** AGG DT-based ABC SQL for minor (no member info needed) */
 function buildAbcSqlFromAggDt(args: AbcQueryArgs): string {
   const { conditions, tab, unit, criteria, period } = args
   const start = period === "base" ? conditions.baseStart : conditions.compareStart!
   const end = period === "base" ? conditions.baseEnd : conditions.compareEnd!
   const metricCol = AGG_METRIC_COL[criteria === "receipt" ? "receipt" : criteria]
 
-  const dtTable = unit === "minor" ? T_DT_AGG_MINOR : T_DT_AGG_MAKER
-  const DT_UNIT_COLS: Record<string, [string, string]> = {
-    minor: ["d.MINOR_CODE", "MAX(d.MINOR_NAME)"],
-    maker: ["d.MAKER_CODE", "MAX(d.MAKER_NAME)"],
-  }
-  const [codeCol, nameCol] = DT_UNIT_COLS[unit] ?? DT_UNIT_COLS["minor"]
+  const dtTable = T_DT_AGG_MINOR
+  const [codeCol, nameCol] = ["d.MINOR_CODE", "MAX(d.MINOR_NAME)"]
 
   const filters: string[] = [`d.BUSINESS_DATE BETWEEN '${start}' AND '${end}'`, `d.TRADE_CLASS_3 = '売上'`]
   if (conditions.storeCodes.length > 0) filters.push(`d.STORE_CODE IN (${inList(conditions.storeCodes)})`)
@@ -439,9 +441,9 @@ LIMIT 5000
 `.trim()
 }
 
-/** AGG fact table ABC SQL for item-level without member filter */
+/** AGG fact table ABC SQL for item-level or sub-level without member filter */
 function buildAbcSqlFromAggFact(args: AbcQueryArgs): string {
-  const { conditions, tab, unit, criteria, period } = args
+  const { conditions, unit, criteria, period } = args
   const start = period === "base" ? conditions.baseStart : conditions.compareStart!
   const end = period === "base" ? conditions.baseEnd : conditions.compareEnd!
   const metricCol = AGG_METRIC_COL[criteria === "receipt" ? "receipt" : criteria]
@@ -453,20 +455,30 @@ function buildAbcSqlFromAggFact(args: AbcQueryArgs): string {
   if (conditions.majorCodes?.length) filters.push(`i.MAJOR_CODE IN (${inListRaw(conditions.majorCodes)})`)
   if (conditions.middleCodes?.length) filters.push(`i.MIDDLE_CODE IN (${inListRaw(conditions.middleCodes)})`)
   if (conditions.minorCodes?.length) filters.push(`i.MINOR_CODE IN (${inListRaw(conditions.minorCodes)})`)
-  if (conditions.makerCodes?.length) filters.push(`i.MAKER_CODE IN (${inListRaw(conditions.makerCodes)})`)
+  if (conditions.subCodes?.length) filters.push(`i.SUB_CODE IN (${inListRaw(conditions.subCodes)})`)
+
+  // Grouping unit: item (default) or sub
+  const isSub = unit === "sub"
+  const groupCol = isSub ? "i.SUB_CODE" : "t.ITEM_CODE"
+  const nameCol = isSub ? "MAX(i.SUB_NAME)" : "MAX(i.ITEM_NAME)"
+  const extraSelect = isSub
+    ? `MAX(i.MAJOR_NAME) AS major_name, MAX(i.MIDDLE_NAME) AS middle_name, MAX(i.MINOR_NAME) AS minor_name`
+    : `MAX(i.MAJOR_NAME) AS major_name, MAX(i.MIDDLE_NAME) AS middle_name, MAX(i.MINOR_NAME) AS minor_name, MAX(i.BRAND_NAME) AS brand_name`
+  const finalExtra = isSub
+    ? `major_name, middle_name, minor_name`
+    : `major_name, middle_name, minor_name, brand_name`
 
   return `
 WITH agg AS (
-  SELECT t.ITEM_CODE AS code, MAX(i.ITEM_NAME) AS name,
-         MAX(i.MAJOR_NAME) AS major_name, MAX(i.MIDDLE_NAME) AS middle_name,
-         MAX(i.MINOR_NAME) AS minor_name, MAX(i.BRAND_NAME) AS brand_name,
+  SELECT ${groupCol} AS code, ${nameCol} AS name,
+         ${extraSelect},
          SUM(t.ITEM_SALES_AMOUNT) AS sales,
          SUM(t.ITEM_SALES_QUANTITY) AS quantity,
          SUM(t.RECEIPT_COUNT) AS receipt_count
   FROM ${T_TRADE_AGG} t
   JOIN ${T_ITEMS} i ON i.ITEM_CODE = t.ITEM_CODE
   WHERE ${filters.join("\n    AND ")}
-  GROUP BY t.ITEM_CODE
+  GROUP BY ${groupCol}
 ),
 ranked AS (
   SELECT agg.*, ${metricCol} AS metric_val
@@ -479,7 +491,7 @@ final AS (
     ROW_NUMBER() OVER (ORDER BY metric_val DESC) AS rank
   FROM ranked r
 )
-SELECT code, name, major_name, middle_name, minor_name, brand_name,
+SELECT code, name, ${finalExtra},
   sales, quantity, receipt_count, rank,
   ROUND(100 * metric_val / NULLIF(total_metric,0), 2) AS sales_ratio,
   ROUND(100 * cum_metric / NULLIF(total_metric,0), 2) AS cumulative_ratio,
@@ -503,7 +515,8 @@ function buildAbcSqlFromFact(args: AbcQueryArgs): string {
   const needsItems = tab === "product" // product tab always needs items for code/name
     || !!(conditions.mdCodes?.length) || !!(conditions.majorCodes?.length)
     || !!(conditions.middleCodes?.length) || !!(conditions.minorCodes?.length)
-    || !!(conditions.makerCodes?.length) || !!(conditions.categoryClass)
+    || !!(conditions.subCodes?.length)
+    || !!(conditions.categoryClass)
   const needsStores = tab === "store" && unit !== "store" // store unit uses t.STORE_CODE directly
   const needsStoresForName = tab === "store" && unit === "store" // need store name
 
@@ -517,7 +530,7 @@ function buildAbcSqlFromFact(args: AbcQueryArgs): string {
     if (conditions.majorCodes && conditions.majorCodes.length > 0) filters.push(`i.MAJOR_CODE IN (${inListRaw(conditions.majorCodes)})`)
     if (conditions.middleCodes && conditions.middleCodes.length > 0) filters.push(`i.MIDDLE_CODE IN (${inListRaw(conditions.middleCodes)})`)
     if (conditions.minorCodes && conditions.minorCodes.length > 0) filters.push(`i.MINOR_CODE IN (${inListRaw(conditions.minorCodes)})`)
-    if (conditions.makerCodes && conditions.makerCodes.length > 0) filters.push(`i.MAKER_CODE IN (${inListRaw(conditions.makerCodes)})`)
+    if (conditions.subCodes && conditions.subCodes.length > 0) filters.push(`i.SUB_CODE IN (${inListRaw(conditions.subCodes)})`)
   }
 
   // Member filter subquery
@@ -541,9 +554,11 @@ function buildAbcSqlFromFact(args: AbcQueryArgs): string {
   const extraSelect =
     tab === "product" && unit === "item"
       ? `, MAX(i.MAJOR_NAME) AS major_name, MAX(i.MIDDLE_NAME) AS middle_name, MAX(i.MINOR_NAME) AS minor_name, MAX(i.BRAND_NAME) AS brand_name`
-      : tab === "store" && unit === "store"
-        ? `, MAX(s.AREA_NAME) AS area_name, MAX(s.BUSINESS_TYPE_NAME) AS business_type_name, MAX(s.CORPORATION_NAME) AS corporation_name, MAX(s.PREFECTURE_NAME) AS prefecture_name`
-        : ``
+      : tab === "product" && unit === "sub"
+        ? `, MAX(i.MAJOR_NAME) AS major_name, MAX(i.MIDDLE_NAME) AS middle_name, MAX(i.MINOR_NAME) AS minor_name`
+        : tab === "store" && unit === "store"
+          ? `, MAX(s.AREA_NAME) AS area_name, MAX(s.BUSINESS_TYPE_NAME) AS business_type_name, MAX(s.CORPORATION_NAME) AS corporation_name, MAX(s.PREFECTURE_NAME) AS prefecture_name`
+          : ``
 
   // Build JOIN clause — only what's needed
   const joins: string[] = []

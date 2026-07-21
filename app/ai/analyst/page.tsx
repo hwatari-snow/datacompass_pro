@@ -1,77 +1,21 @@
 "use client"
 
-import { useState, useRef, useEffect } from "react"
+import { useRef, useEffect } from "react"
 import { Send, Sparkles, Loader2, Table2, Code2 } from "lucide-react"
 import ReactMarkdown from "react-markdown"
-
-interface Message {
-  id: string
-  role: "user" | "assistant"
-  content: string
-  sql?: string
-  results?: Record<string, unknown>[]
-  totalRows?: number
-  error?: string
-  timestamp: Date
-}
+import { useAnalystChat } from "@/lib/use-analyst-chat"
+import type { ChatMessage } from "@/lib/types"
 
 export default function AnalystPage() {
-  const [messages, setMessages] = useState<Message[]>([])
-  const [input, setInput] = useState("")
-  const [loading, setLoading] = useState(false)
+  const { messages, input, setInput, loading, send, useConditionContext, setUseConditionContext } = useAnalystChat()
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [messages])
 
-  async function handleSend() {
-    const text = input.trim()
-    if (!text || loading) return
-
-    const userMsg: Message = {
-      id: crypto.randomUUID(),
-      role: "user",
-      content: text,
-      timestamp: new Date(),
-    }
-    setMessages((prev) => [...prev, userMsg])
-    setInput("")
-    setLoading(true)
-
-    try {
-      const res = await fetch("/api/analyst", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text }),
-      })
-      const data = await res.json()
-
-      const assistantMsg: Message = {
-        id: crypto.randomUUID(),
-        role: "assistant",
-        content: data.explanation || data.error || "No response",
-        sql: data.sql,
-        results: data.results,
-        totalRows: data.totalRows,
-        error: data.error,
-        timestamp: new Date(),
-      }
-      setMessages((prev) => [...prev, assistantMsg])
-    } catch {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: crypto.randomUUID(),
-          role: "assistant",
-          content: "接続エラーが発生しました。",
-          error: "Network error",
-          timestamp: new Date(),
-        },
-      ])
-    } finally {
-      setLoading(false)
-    }
+  function handleSend() {
+    send(input)
   }
 
   return (
@@ -112,7 +56,7 @@ export default function AnalystPage() {
           </div>
         )}
 
-        {messages.map((msg) => (
+        {messages.map((msg: ChatMessage) => (
           <div key={msg.id} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
             <div
               className={`max-w-[80%] rounded-xl px-4 py-3 ${
@@ -208,6 +152,13 @@ export default function AnalystPage() {
         >
           <Send className="h-4 w-4" />
         </button>
+      </div>
+      <div className="mt-2 flex items-center justify-between gap-3 text-[10px]" style={{ color: "var(--muted-foreground)" }}>
+        <label className="flex items-center gap-2">
+          <input type="checkbox" checked={useConditionContext} onChange={(e) => setUseConditionContext(e.target.checked)} />
+          現在の分析条件を反映
+        </label>
+        <span>条件反映は自然言語コンテキストであり、厳密フィルタではありません</span>
       </div>
     </div>
   )

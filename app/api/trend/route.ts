@@ -19,13 +19,18 @@ export async function GET(request: Request) {
   const mdCodesRaw = (searchParams.get("mdCodes") ?? "").split(",").filter(Boolean)
   const majorCodesRaw = (searchParams.get("majorCodes") ?? "").split(",").filter(Boolean)
   const middleCodesRaw = (searchParams.get("middleCodes") ?? "").split(",").filter(Boolean)
+  const minorCodesRaw = (searchParams.get("minorCodes") ?? "").split(",").filter(Boolean)
+  const subCodesRaw = (searchParams.get("subCodes") ?? "").split(",").filter(Boolean)
 
   const stripPrefix = (codes: string[]) => codes.map((c) => { const i = c.indexOf("_"); return i >= 0 ? c.substring(i + 1) : c })
   const mdCodes = stripPrefix(mdCodesRaw)
   const majorCodes = stripPrefix(majorCodesRaw)
   const middleCodes = stripPrefix(middleCodesRaw)
+  const minorCodes = stripPrefix(minorCodesRaw)
+  const subCodes = stripPrefix(subCodesRaw)
 
-  const useDt = !itemCodes && groupBy !== "item" && groupBy !== "minor"
+  // minor/sub group-by and sub filter have no DT — force the fact-table slow path
+  const useDt = !itemCodes && groupBy !== "item" && groupBy !== "minor" && groupBy !== "sub" && subCodes.length === 0
 
   const dateCol = useDt ? "d.BUSINESS_DATE" : "t.BUSINESS_DATE"
   // Period label expression. Note: Snowflake TO_VARCHAR has no 'WW' token — use
@@ -81,9 +86,9 @@ export async function GET(request: Request) {
         const codes = storeCodes.split(",").map((c) => `'${c.replace(/'/g, "''")}'`).join(",")
         whereConditions.push(`d.STORE_CODE IN (${codes})`)
       }
-      if (mdCodes.length > 0) whereConditions.push(`d.MD_CODE IN (${mdCodes.map(c => `'${c}'`).join(",")})`)
-      if (majorCodes.length > 0) whereConditions.push(`d.MAJOR_CODE IN (${majorCodes.map(c => `'${c}'`).join(",")})`)
-      if (middleCodes.length > 0) whereConditions.push(`d.MIDDLE_CODE IN (${middleCodes.map(c => `'${c}'`).join(",")})`)
+      if (mdCodes.length > 0) whereConditions.push(`d.MD_CODE IN (${mdCodes.map(c => `'${c.replace(/'/g, "''")}'`).join(",")})`)
+      if (majorCodes.length > 0) whereConditions.push(`d.MAJOR_CODE IN (${majorCodes.map(c => `'${c.replace(/'/g, "''")}'`).join(",")})`)
+      if (middleCodes.length > 0) whereConditions.push(`d.MIDDLE_CODE IN (${middleCodes.map(c => `'${c.replace(/'/g, "''")}'`).join(",")})`)
       const whereClause = `WHERE ${whereConditions.join(" AND ")}`
 
       const groupByClause = groupCol ? `period, series_name` : `period`
@@ -111,28 +116,24 @@ export async function GET(request: Request) {
       sales: "SUM(t.ITEM_SALES_AMOUNT)",
       quantity: "SUM(t.ITEM_SALES_QUANTITY)",
       receipts: "COUNT(DISTINCT t.TRADE_KEY)",
-      unit_price: "AVG(t.ITEM_SALES_AMOUNT / NULLIF(t.ITEM_SALES_QUANTITY, 0))",
+      unit_price: "SUM(t.ITEM_SALES_AMOUNT) / NULLIF(SUM(t.ITEM_SALES_QUANTITY), 0)",
     }[metric] ?? "SUM(t.ITEM_SALES_AMOUNT)"
 
     let groupCol = ""
     let groupSelect = ""
-    let joinClause = ""
-    if (groupBy === "md") {
-      joinClause = `JOIN (SELECT DISTINCT ITEM_CODE, MD_NAME FROM ${DB}.MASTER.DATAMART_COMMON_ITEMS) m ON m.ITEM_CODE = t.ITEM_CODE`
-      groupCol = "m.MD_NAME"; groupSelect = `${groupCol} AS series_name,`
-    } else if (groupBy === "major") {
-      joinClause = `JOIN (SELECT DISTINCT ITEM_CODE, MAJOR_NAME FROM ${DB}.MASTER.DATAMART_COMMON_ITEMS) m ON m.ITEM_CODE = t.ITEM_CODE`
-      groupCol = "m.MAJOR_NAME"; groupSelect = `${groupCol} AS series_name,`
-    } else if (groupBy === "middle") {
-      joinClause = `JOIN (SELECT DISTINCT ITEM_CODE, MIDDLE_NAME FROM ${DB}.MASTER.DATAMART_COMMON_ITEMS) m ON m.ITEM_CODE = t.ITEM_CODE`
-      groupCol = "m.MIDDLE_NAME"; groupSelect = `${groupCol} AS series_name,`
-    } else if (groupBy === "minor") {
-      joinClause = `JOIN (SELECT DISTINCT ITEM_CODE, MINOR_NAME FROM ${DB}.MASTER.DATAMART_COMMON_ITEMS) m ON m.ITEM_CODE = t.ITEM_CODE`
-      groupCol = "m.MINOR_NAME"; groupSelect = `${groupCol} AS series_name,`
-    } else if (groupBy === "item") {
-      joinClause = `JOIN (SELECT DISTINCT ITEM_CODE, ITEM_NAME FROM ${DB}.MASTER.DATAMART_COMMON_ITEMS) m ON m.ITEM_CODE = t.ITEM_CODE`
-      groupCol = "m.ITEM_NAME"; groupSelect = `${groupCol} AS series_name,`
+    const groupColMap: Record<string, string> = {
+      md: "m.MD_NAME", major: "m.MAJOR_NAME", middle: "m.MIDDLE_NAME", minor: "m.MINOR_NAME", sub: "m.SUB_NAME", item: "m.ITEM_NAME",
     }
+    if (groupColMap[groupBy]) {
+      groupCol = groupColMap[groupBy]
+      groupSelect = `${groupCol} AS series_name,`
+    }
+    // Single comprehensive items join (avoids missing-column errors when a group-by
+    // join and a code filter both need different columns from the items master).
+    const needsJoin = !!groupCol || mdCodes.length > 0 || majorCodes.length > 0 || middleCodes.length > 0 || minorCodes.length > 0 || subCodes.length > 0
+    const joinClause = needsJoin
+      ? `JOIN (SELECT DISTINCT ITEM_CODE, MD_CODE, MAJOR_CODE, MIDDLE_CODE, MINOR_CODE, SUB_CODE, MD_NAME, MAJOR_NAME, MIDDLE_NAME, MINOR_NAME, SUB_NAME, ITEM_NAME FROM ${DB}.MASTER.DATAMART_COMMON_ITEMS) m ON m.ITEM_CODE = t.ITEM_CODE`
+      : ""
 
     const whereConditions: string[] = []
     if (baseStart && baseEnd) {
@@ -140,6 +141,7 @@ export async function GET(request: Request) {
     } else {
       whereConditions.push(`t.BUSINESS_DATE >= DATEADD('day', -90, CURRENT_DATE())`)
     }
+    whereConditions.push(`t.TRADE_CLASS_3 = '売上'`)
     if (storeCodes) {
       const codes = storeCodes.split(",").map((c) => `'${c.replace(/'/g, "''")}'`).join(",")
       whereConditions.push(`t.STORE_CODE IN (${codes})`)
@@ -149,16 +151,19 @@ export async function GET(request: Request) {
       whereConditions.push(`t.ITEM_CODE IN (${codes})`)
     }
     if (mdCodes.length > 0) {
-      joinClause = joinClause || `JOIN (SELECT DISTINCT ITEM_CODE, MD_CODE FROM ${DB}.MASTER.DATAMART_COMMON_ITEMS) m ON m.ITEM_CODE = t.ITEM_CODE`
-      whereConditions.push(`m.MD_CODE IN (${mdCodes.map(c => `'${c}'`).join(",")})`)
+      whereConditions.push(`m.MD_CODE IN (${mdCodes.map(c => `'${c.replace(/'/g, "''")}'`).join(",")})`)
     }
     if (majorCodes.length > 0) {
-      if (!joinClause) joinClause = `JOIN (SELECT DISTINCT ITEM_CODE, MAJOR_CODE FROM ${DB}.MASTER.DATAMART_COMMON_ITEMS) m ON m.ITEM_CODE = t.ITEM_CODE`
-      whereConditions.push(`m.MAJOR_CODE IN (${majorCodes.map(c => `'${c}'`).join(",")})`)
+      whereConditions.push(`m.MAJOR_CODE IN (${majorCodes.map(c => `'${c.replace(/'/g, "''")}'`).join(",")})`)
     }
     if (middleCodes.length > 0) {
-      if (!joinClause) joinClause = `JOIN (SELECT DISTINCT ITEM_CODE, MIDDLE_CODE FROM ${DB}.MASTER.DATAMART_COMMON_ITEMS) m ON m.ITEM_CODE = t.ITEM_CODE`
-      whereConditions.push(`m.MIDDLE_CODE IN (${middleCodes.map(c => `'${c}'`).join(",")})`)
+      whereConditions.push(`m.MIDDLE_CODE IN (${middleCodes.map(c => `'${c.replace(/'/g, "''")}'`).join(",")})`)
+    }
+    if (minorCodes.length > 0) {
+      whereConditions.push(`m.MINOR_CODE IN (${minorCodes.map(c => `'${c.replace(/'/g, "''")}'`).join(",")})`)
+    }
+    if (subCodes.length > 0) {
+      whereConditions.push(`m.SUB_CODE IN (${subCodes.map(c => `'${c.replace(/'/g, "''")}'`).join(",")})`)
     }
     const whereClause = whereConditions.length ? `WHERE ${whereConditions.join(" AND ")}` : ""
     const groupByClause = groupCol ? `period, series_name` : `period`

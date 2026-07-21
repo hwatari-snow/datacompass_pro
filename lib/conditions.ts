@@ -30,7 +30,7 @@ export function defaultConditions(): AnalysisConditions {
     majorCodes: [],
     middleCodes: [],
     minorCodes: [],
-    makerCodes: [],
+    subCodes: [],
     member: {
       enabled: false,
       genders: [],
